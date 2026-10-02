@@ -601,10 +601,12 @@ var CONFIG = {
     // One per lane, three to a level, all the same villain: level 1 wears
     // FILES[0], level 2 FILES[1], level 3 FILES[2], level 4 FILES[0] again, and
     // so on. They stand still at the right of the car area, on their lane's
-    // road line. Over each CAR is how far it still is from its villain
-    // (levelData.js); the lane's piggy takes its m/s off that every tick, and
-    // at zero the villain is caught — gone, and its payout showered to the
-    // coin counter. All three caught: the next level.
+    // road line. Between each car and its villain is a measuring line with
+    // how far apart they are (levelData.js); the lane's piggy takes its m/s off
+    // that every tick and the car DRIVES FORWARD along the line to match, so
+    // the gap visibly closes. At zero the car is up against the villain and it
+    // is caught — gone, and its payout showered to the coin counter. All three
+    // caught: the next level, and the cars roll back to the start.
     VILLAIN: {
         DIR:   'graphics/villain/',
         FILES: ['villain_01.webp', 'villain_02.webp', 'villian_03.webp'],
@@ -621,10 +623,30 @@ var CONFIG = {
         NEXT_LEVEL_MS: 900,      // pause after the last catch before the next level
         ENTER_MS:      400,      // how long the next level's villains take to appear
 
-        // THE DISTANCE OVER EACH CAR.
+        // THE CAR'S DRIVE. It starts beside its slot and, as the distance
+        // runs down, moves toward the villain in proportion to how much of the
+        // level's distance is covered — at zero its front bumper is STOP_GAP
+        // px (@ design) short of the villain. Each tick's move is spread over
+        // DRIVE_MS so the car rolls rather than jumps.
+        STOP_GAP:   10,
+        DRIVE_MS:   950,
+
+        // THE MEASURING LINE from the car's front bumper to the villain, with
+        // the distance on it: |<---- 65 m ---->|
+        GAP_LINE: {
+            Y_FRAC:   0.45,      // height above the road, as a share of the car's height
+            PAD:      6,         // px @ design kept clear of the bumper and the villain
+            W:        3,         // line width, px @ design
+            ARROW:    11,        // arrowhead length, px @ design
+            END_TICK: 18,        // the upright bar at each end, px @ design
+            TEXT_PAD: 8,         // px @ design between the line and the figure
+            COLOR:    '#ffffff',
+            ALPHA:    0.95,
+        },
+        // THE FIGURE on the line. Too long for the line (the car nearly
+        // there), it sits just above it instead.
         LABEL: {
             SIZE:     30,        // px @ design
-            GAP:      8,         // px @ design between the car's roof and the figure
             COLOR:    '#ffffff',
             STROKE:   '#2b2013',
             STROKE_W: 5,

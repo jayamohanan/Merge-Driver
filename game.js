@@ -223,7 +223,8 @@ class GameScene extends Phaser.Scene {
         this.level             = 1;
         this.lanes             = null;
         this.villains          = [];     // one sprite per lane
-        this.laneLabels        = [];     // the distance over each car
+        this.laneLabels        = [];     // the distance, on each gap line
+        this.gapLines          = null;   // one graphics for the three lines
         this._levelTurning     = false;  // between the last catch and the next level
 
         // Layout state for responsive design
@@ -654,6 +655,8 @@ class GameScene extends Phaser.Scene {
         this.cars = [];
         for (const o of [...this.villains, ...this.laneLabels]) gone(o);
         this.villains = []; this.laneLabels = [];
+        gone(this.gapLines);
+        this.gapLines = null;
         gone(this.coinIcon);
         gone(this.coinText);
         gone(this.spawnButton);
@@ -1182,6 +1185,9 @@ class GameScene extends Phaser.Scene {
         car.setScale(height / gy).setDepth(C.DEPTH !== undefined ? C.DEPTH : 4);
         car.tyres = tyres;
         car.carH = height;     // ground to roof, px
+        car.carW = bw * height / gy;
+        car.homeX = car.endX = car.targetX = x;   // see _placeCar
+        car.driveV = 0;        // px per second while rolling to targetX
         car.wheelAngle = 0;    // degrees, shared by both tyres
         car.wheelSpeed = 0;    // degrees per second, eased toward its target
         return car;
@@ -1267,15 +1273,111 @@ class GameScene extends Phaser.Scene {
                 this.villains[i] = img;
             }
 
-            // THE DISTANCE, over the car's roof.
+            // WHERE THE CAR'S DRIVE ENDS: its front bumper STOP_GAP short of
+            // the villain. Never behind where it starts.
+            if (car) {
+                const vl = this.villains[i];
+                const stopAt = vl ? vl.x - vl.displayWidth / 2 : A.x + A.width;
+                car.endX = Math.max(car.homeX, stopAt - v(V.STOP_GAP, 10) * sc - car.carW / 2);
+                // A NEW LEVEL rolls the car back to the start; otherwise it is
+                // put straight where its lane's progress says.
+                if (enter) {
+                    car.driveV = 0;
+                    car.targetX = this._carXFor(i);
+                    this.tweens.add({ targets: car, x: car.targetX,
+                        duration: v(V.ENTER_MS, 400) + 200, ease: 'Sine.easeInOut' });
+                } else {
+                    this._placeCar(i, false);
+                }
+            }
+
+            // THE DISTANCE, on the gap line — placed every frame (_drawGapLines).
             const fs = Math.max(10, Math.round(v(LB.SIZE, 30) * sc));
-            const x  = car ? car.x : p.slotX;
-            this.laneLabels[i] = this.add.text(x, ground - carH - v(LB.GAP, 8) * sc, '', {
+            this.laneLabels[i] = this.add.text(0, 0, '', {
                 fontSize: fs + 'px', fontFamily: CONFIG.FONT_FAMILY, fontStyle: CONFIG.FONT_WEIGHT,
                 color: LB.COLOR || '#ffffff', stroke: LB.STROKE || '#2b2013',
                 strokeThickness: Math.round(v(LB.STROKE_W, 5) * sc),
-            }).setOrigin(0.5, 1).setDepth(v(V.DEPTH, 4) + 0.1);
+            }).setOrigin(0.5).setDepth(v(V.DEPTH, 4) + 0.2);
             this._setLaneLabel(i);
+        });
+        this.gapLines = this.add.graphics().setDepth(v(V.DEPTH, 4) + 0.1);
+        this._drawGapLines();
+    }
+
+    // WHERE LANE i's CAR SHOULD BE: from its home spot to its end, by the share
+    // of the level's distance already covered.
+    _carXFor(i) {
+        const car = this.cars[i], lane = this.lanes && this.lanes[i];
+        if (!car) return 0;
+        const done = lane && lane.total > 0 ? 1 - lane.left / lane.total : 0;
+        return car.homeX + (car.endX - car.homeX) * Math.max(0, Math.min(1, done));
+    }
+
+    // Send lane i's car to where its distance says: rolled there over DRIVE_MS
+    // (a tick), or put there at once (a rebuild).
+    _placeCar(i, roll) {
+        const car = this.cars[i];
+        if (!car || !car.scene) return;
+        car.targetX = this._carXFor(i);
+        if (!roll) { car.x = car.targetX; car.driveV = 0; return; }
+        const ms = (CONFIG.VILLAIN || {}).DRIVE_MS;
+        car.driveV = (car.targetX - car.x) / ((ms !== undefined ? ms : 950) / 1000);
+    }
+
+    // Each frame: every rolling car a step nearer its target, never past it.
+    _driveCars(delta) {
+        const dt = delta / 1000;
+        for (const car of this.cars) {
+            if (!car || !car.scene || !car.driveV) continue;
+            const step = car.driveV * dt, gap = car.targetX - car.x;
+            if (Math.abs(step) >= Math.abs(gap)) { car.x = car.targetX; car.driveV = 0; }
+            else car.x += step;
+        }
+    }
+
+    // THE MEASURING LINES, redrawn each frame since the cars move: from each
+    // car's front bumper to its villain, an upright bar and an arrowhead at
+    // either end, and the distance in the middle with the line broken around
+    // it. A gap too short for the figure gets it just above the line instead.
+    _drawGapLines() {
+        const g = this.gapLines;
+        if (!g || !g.scene || !this.lanes) return;
+        g.clear();
+        const V  = CONFIG.VILLAIN || {}, G = V.GAP_LINE || {};
+        const v  = (x, d) => (x !== undefined ? x : d);
+        const sc = this.layoutConfig.platformScale;
+        const pad = v(G.PAD, 6) * sc, arrow = v(G.ARROW, 11) * sc;
+        const tick = v(G.END_TICK, 18) * sc / 2, tpad = v(G.TEXT_PAD, 8) * sc;
+        const col = hexColor(G.COLOR || '#ffffff'), alpha = v(G.ALPHA, 0.95);
+        g.lineStyle(Math.max(1, v(G.W, 3) * sc), col, alpha);
+
+        this.platforms.forEach((p, i) => {
+            const lane = this.lanes[i], car = this.cars[i], vl = this.villains[i];
+            const t = this.laneLabels[i];
+            if (!lane || lane.caught || !car || !vl || !vl.visible) { if (t) t.setVisible(false); return; }
+            const y  = p.slotY + p.slotSize / 2 - car.carH * v(G.Y_FRAC, 0.45);
+            const x0 = car.x + car.carW / 2 + pad;
+            const x1 = vl.x - vl.displayWidth / 2 - pad;
+            if (x1 - x0 < 2 * arrow) {            // touching: no room for a line
+                if (t) t.setPosition((x0 + x1) / 2, y - car.carH * 0.55).setVisible(true);
+                return;
+            }
+            // The two end bars and the arrowheads pointing out at them.
+            g.lineBetween(x0, y - tick, x0, y + tick);
+            g.lineBetween(x1, y - tick, x1, y + tick);
+            g.fillStyle(col, alpha);
+            g.fillTriangle(x0, y, x0 + arrow, y - arrow * 0.55, x0 + arrow, y + arrow * 0.55);
+            g.fillTriangle(x1, y, x1 - arrow, y - arrow * 0.55, x1 - arrow, y + arrow * 0.55);
+            // The line itself, broken around the figure when it fits.
+            const mid = (x0 + x1) / 2, half = t ? t.width / 2 + tpad : 0;
+            if (t && x1 - x0 - 2 * arrow > 2 * half) {
+                t.setPosition(mid, y).setVisible(true);
+                g.lineBetween(x0 + arrow, y, mid - half, y);
+                g.lineBetween(mid + half, y, x1 - arrow, y);
+            } else {
+                g.lineBetween(x0 + arrow, y, x1 - arrow, y);
+                if (t) t.setPosition(mid, y - t.height / 2 - tpad / 2).setVisible(true);
+            }
         });
     }
 
@@ -1719,6 +1821,7 @@ class GameScene extends Phaser.Scene {
             this.distance += Math.min(slot.distPerSec, lane.left);
             lane.left = Math.max(0, lane.left - slot.distPerSec);
             this._setLaneLabel(i);
+            this._placeCar(i, true);
             if (lane.left <= 0) this._catchVillain(i);
         }
     }
@@ -3069,6 +3172,8 @@ class GameScene extends Phaser.Scene {
         // that moves is tween- or timer-driven, and _setPaused stops those.
         this._spinWheels(delta);
         this._steerWheels(delta);
+        this._driveCars(delta);
+        this._drawGapLines();
     }
 }
 
