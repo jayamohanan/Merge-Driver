@@ -24,13 +24,12 @@ OUT=build
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# THE ITEM ART SHIPS AS WEBP ONLY. graphics/item also holds the PNG masters and
-# working subfolders; only the top-level .webp files are what the game loads.
-# Anchored with a leading / so it means this one folder. First match wins, so
-# these two must stay ahead of everything else.
+# THE ITEM ART IS graphics/piggy and graphics/st_wheel. graphics/item (the old
+# baked-together items) and graphics/crop are no longer loaded, so they are left
+# out. Anchored with a leading / so each means that one folder.
 rsync -a \
-  --include '/graphics/item/*.webp' \
-  --exclude '/graphics/item/*' \
+  --exclude '/graphics/item' \
+  --exclude '/graphics/crop' \
   --exclude '.git' \
   --exclude '.github' \
   --exclude '.gitignore' \
@@ -47,24 +46,6 @@ rsync -a \
   --exclude 'sounds' \
   --exclude 'untitled folder' \
   ./ "$OUT/"
-
-# ── NO DEBUG OVERLAYS IN THE BUILD ─────────────────────────────────────────────
-# The development viewers — the stump rows, the crop rows and the field maps —
-# cover the farm and are switched on in config.js while being used. Forgetting
-# to switch one off before building would ship it. So the BUILD COPY of
-# config.js gets a line at its end that turns every one of them off (and the
-# forced plant count back to the real game's), whatever the source says. The
-# source file is never touched.
-cat >> "$OUT/config.js" <<'EOF'
-
-;(function () {
-    const M = (CONFIG.CROPS || {}).MULTI || {};
-    const F = CONFIG.FIELD_MAP || {};
-    for (const P of [M.STUMP_PREVIEW, M.CROP_PREVIEW, F.PREVIEW]) if (P) P.ENABLED = false;
-    M.DEBUG_COUNT = null;
-    M.DEBUG_BACK_ONLY = false;
-})();
-EOF
 
 # ── START THE OPENING ART WITH THE PAGE ────────────────────────────────────────
 # Without this, loading runs in rounds, each waiting on the server: the page,
@@ -88,7 +69,7 @@ node - "$OUT" <<'EOF'
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const OUT = process.argv[2];
 const ctx = vm.createContext({ console });
-for (const f of ['batteryChargeData.js', 'cropData.js', 'config.js', 'assets.js']) {
+for (const f of ['batteryChargeData.js', 'config.js', 'assets.js']) {
   vm.runInContext(fs.readFileSync(path.join(OUT, f), 'utf8'), ctx, { filename: f });
 }
 const pick = vm.runInContext(`sharedAssets().map((a) => ({ url: a.url, json: a.type === 'json' }))`, ctx);
@@ -123,7 +104,7 @@ EOF
 # puts its whole program on a few lines, so an error's line number points nowhere
 # useful.
 if [ "$1" != "--no-minify" ]; then
-  for f in game.js config.js assets.js batteryChargeData.js cropData.js; do
+  for f in game.js config.js assets.js batteryChargeData.js; do
     [ -f "$OUT/$f" ] || continue
     npx --yes esbuild@0.24.0 "$OUT/$f" \
       --minify-whitespace --minify-syntax --legal-comments=none \
@@ -132,11 +113,11 @@ if [ "$1" != "--no-minify" ]; then
   done
 fi
 
-# ── ONE SCRIPT INSTEAD OF FIVE ─────────────────────────────────────────────────
-# batteryChargeData.js, cropData.js, config.js, assets.js and game.js are five
+# ── ONE SCRIPT INSTEAD OF FOUR ─────────────────────────────────────────────────
+# batteryChargeData.js, config.js, assets.js and game.js are four
 # requests before the game can even start, and each waits on the server. In the
 # BUILD COPY they are joined into one game.js, in the order index.html loads
-# them, and the build's index.html gets one tag in place of five. The project's
+# them, and the build's index.html gets one tag in place of four. The project's
 # files and its index.html are never touched.
 #
 # Joined as a PLAIN script, not a module. The project's index.html still loads
@@ -155,7 +136,7 @@ fi
 node - "$OUT" <<'EOF'
 const fs = require('fs'), path = require('path');
 const OUT = process.argv[2];
-const parts = ['batteryChargeData.js', 'cropData.js', 'config.js', 'assets.js', 'game.js'];
+const parts = ['batteryChargeData.js', 'config.js', 'assets.js', 'game.js'];
 const htmlPath = path.join(OUT, 'index.html');
 let page = fs.readFileSync(htmlPath, 'utf8');
 // Read everything first, then write: game.js is both an input and the output.

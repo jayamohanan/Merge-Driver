@@ -1,38 +1,42 @@
 /**
- * BATTERY DATA FILE
+ * ITEM DATA FILE
  *
- * The pig's own art, and what it's worth. One type only: THE HARVEST ITEMS,
- * levels 1-28, living in graphics/item as item_01.webp .. item_28.webp. A level
- * past 28 LOOPS back to item_01 rather than needing new art for every level —
- * see getBatteryIconLevel in config.js, the one place that decides which of
- * the 28 pictures a given level shows.
+ * The piggy driver's art, and what it's worth.
  *
- * CHARGE VALUES BY LEVEL:
- * - CHARGE_PER_SECOND_BY_LEVEL: level → charge per second. SEPARATE from the
- *   art on purpose — a level's picture can loop back to item_01 while its
- *   charge keeps climbing, which is the whole point of the loop.
+ * AN ITEM IS TWO PICTURES: a piggy (graphics/piggy, 28 of them) with a
+ * steering wheel (graphics/st_wheel, 90 of them) laid over it. The two are
+ * drawn together into ONE texture per level at runtime (AssetManager.
+ * composeBattery in game.js), so the rest of the game handles an item as a
+ * single sprite.
+ *
+ *   level 1..90   wheel = the level's own number; piggy LOOPS every 28
+ *                 (level 29 is piggy 1 with wheel 29)
+ *   level 91+     the whole picture loops back to level 1's — see
+ *                 getBatteryIconLevel in config.js
+ *
+ * DISTANCE VALUES BY LEVEL (CHARGE_PER_SECOND_BY_LEVEL) are SEPARATE from the
+ * art on purpose: a level's picture can loop while its figure keeps climbing.
  */
 
 // ==================================================================================
-// CHARGE VALUES BY LEVEL
+// THE ART
 // ==================================================================================
-// Dictionary mapping level number to charge per second value
-// Edit any level's value directly - easy to find and modify!
+var ITEM_ART = {
+    // file name = prefix + number (zero-padded to `pad`) + '.' + ext
+    PIGGY: { folder: 'piggy',    prefix: 'item_',     count: 28, ext: 'webp', pad: 2 },
+    WHEEL: { folder: 'st_wheel', prefix: 'st_wheel_', count: 90, ext: 'webp', pad: 2 },
+    // Where the wheel goes, in the PIGGY's own pixels — its top-left corner
+    // and its size — for a piggy of REF_W × REF_H. Art of another size is
+    // scaled to match.
+    REF_W: 156,
+    REF_H: 136,
+    WHEEL_AT: { x: 82, y: 61, size: 64 },
+};
 
-
-// ==================================================================================
-// BATTERY APPEARANCE DATA
-// ==================================================================================
-// One type, twenty-eight positions. folder/ext/pad are this entry's own, because the
-// art lives in graphics/item rather than the generic graphics/battery a
-// second type would default to (see LEVEL_TO_BATTERY_INFO).
-var BATTERY_TYPES = [
-    { name: 'Item', count: 28, folder: 'item', ext: 'webp', pad: 2 },
-];
+// DISTANCE PER SECOND (metres) a pig of each level covers while in a slot.
 // 12.5 × 1.5^(level − 1) up to level 31, then 2.5× the reference curve;
-// rounded to the same clean numbers as the crops, and never falling — two
-// neighbouring levels can share a figure where the curve rises slower than the
-// clean steps do (see THE ECONOMY'S RULES in cropData.js).
+// rounded to clean numbers, and never falling — two neighbouring levels can
+// share a figure where the curve rises slower than the clean steps do.
 var CHARGE_PER_SECOND_BY_LEVEL = {
     1: 12,
     2: 18,
@@ -140,124 +144,24 @@ var CHARGE_PER_SECOND_BY_LEVEL = {
 // HELPER FUNCTIONS - Used by the game code
 // ==================================================================================
 
-// Build a lookup table: level → { batteryType, positionInType }
-var LEVEL_TO_BATTERY_INFO = {};
-(function() {
-    let currentLevel = 1;
-    BATTERY_TYPES.forEach((batteryType, index) => {
-        const firstPosition = batteryType.startAt || 1;
-        for (let i = 0; i < batteryType.count; i++) {
-            LEVEL_TO_BATTERY_INFO[currentLevel] = {
-                name: batteryType.name,
-                position: firstPosition + i,
-                typeIndex: index + 1,
-                folder: batteryType.folder || 'battery',
-                ext: batteryType.ext || 'webp',
-                pad: batteryType.pad || 0
-            };
-            currentLevel++;
-        }
-    });
-})();
-
-// Helper function to convert display name to file name base
-function displayNameToFileBase(displayName) {
-    return displayName.toLowerCase().replace(/ /g, '_');
+function _itemFile(art, n) {
+    const num = art.pad ? String(n).padStart(art.pad, '0') : String(n);
+    return `graphics/${art.folder}/${art.prefix}${num}.${art.ext}`;
 }
 
-// Get battery info for a level
-function getBatteryInfo(level) {
-    return LEVEL_TO_BATTERY_INFO[level] || null;
+// Which piggy picture an ICON level wears — the 28 loop.
+function itemPiggyIndex(iconLvl) {
+    return ((iconLvl - 1) % ITEM_ART.PIGGY.count) + 1;
 }
+function itemPiggyPath(iconLvl) { return _itemFile(ITEM_ART.PIGGY, itemPiggyIndex(iconLvl)); }
+function itemWheelPath(iconLvl) { return _itemFile(ITEM_ART.WHEEL, iconLvl); }
 
-// Get battery display name by level
-function getBatteryDisplayName(level) {
-    const info = getBatteryInfo(level);
-    return info ? info.name : `Battery ${level}`;
-}
-
-// Name → file stem: lion, position 2, no padding → lion_2; scissor, position 2,
-// padded to two digits → scissor_02.
-function batteryFileStem(info) {
-    const fileBase = displayNameToFileBase(info.name);
-    const n = info.pad ? String(info.position).padStart(info.pad, '0')
-                       : String(info.position);
-    return `${fileBase}_${n}`;
-}
-
-// Get battery file name by level (auto-generated from display name)
-function getBatteryFileName(level) {
-    const info = getBatteryInfo(level);
-    if (!info) return `battery_${level}.webp`;
-    return `${batteryFileStem(info)}.${info.ext}`;
-}
-
-// Get battery data by level. `path` is what the loaders want — the folder is
-// per type now (the scissors are not in graphics/battery), so nobody outside
-// here should be gluing a folder onto fileName.
-function getBatteryData(level) {
-    const info = getBatteryInfo(level);
-    if (!info) {
-        const fileName = `battery_${level}.webp`;
-        return { fileName, folder: 'battery', path: `graphics/battery/${fileName}`,
-                 displayName: `Battery ${level}` };
-    }
-
-    const fileName = `${batteryFileStem(info)}.${info.ext}`;
-    return {
-        fileName,
-        folder: info.folder,
-        path: `graphics/${info.folder}/${fileName}`,
-        displayName: info.name
-    };
-}
-
-// Get charge value for a battery level
+// Distance per second for a level.
 function getBatteryChargeValue(level) {
     return CHARGE_PER_SECOND_BY_LEVEL[level] || (level * 5); // Fallback for undefined levels
 }
 
-// Get the highest available battery level
+// The number of DISTINCT pictures — one per wheel. Past it, the art loops.
 function getHighestBatteryLevel() {
-    return Math.max(...Object.keys(LEVEL_TO_BATTERY_INFO).map(Number));
+    return ITEM_ART.WHEEL.count;
 }
-
-// Get all battery levels that have data defined
-function getAllBatteryLevels() {
-    return Object.keys(LEVEL_TO_BATTERY_INFO).map(Number).sort((a, b) => a - b);
-}
-
-// Create lookup tables for legacy compatibility
-var BATTERY_DATA_BY_LEVEL = {};
-var BATTERY_CHARGE_TABLE = {}; // Legacy compatibility
-
-// Populate legacy lookup tables
-Object.keys(LEVEL_TO_BATTERY_INFO).forEach(level => {
-    level = Number(level);
-    BATTERY_DATA_BY_LEVEL[level] = getBatteryData(level);
-    BATTERY_CHARGE_TABLE[level] = CHARGE_PER_SECOND_BY_LEVEL[level] || (level * 5);
-});
-
-// ==================================================================================
-// HOW A LEVEL BECOMES A PICTURE
-// ==================================================================================
-//
-// EXAMPLE — Level 1:
-//   - File: item_01.webp (position 1, padded to 2 digits)
-//   - Charge: 5 (from CHARGE_PER_SECOND_BY_LEVEL[1])
-//
-// EXAMPLE — Level 28 (the last real position):
-//   - File: item_28.webp
-//
-// EXAMPLE — Level 29 (past the art, so it loops):
-//   - getBatteryIconLevel(29) wraps it to 1 — see config.js
-//   - File: item_01.webp, the SAME picture level 1 shows
-//   - Charge: still its own, real, climbing figure. Charge is never
-//     looped, only the picture is.
-//
-// TO ADD MORE ART: drop item_29.webp, item_30.webp, … into graphics/item and
-// raise this entry's count. The loop point (getHighestBatteryLevel()) moves
-// with it automatically — nothing else to update.
-//
-// TO CHANGE CHARGE VALUES:
-// Edit CHARGE_PER_SECOND_BY_LEVEL - e.g., to change level 50: just find "50:" and edit the value!

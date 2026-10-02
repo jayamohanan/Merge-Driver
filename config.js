@@ -27,15 +27,10 @@ var CONFIG = {
     // Portrait stays a 50/50 top/bottom split — see calculateLayout().
     LAYOUT: {
         // THE UI HALF'S SHARE, and both numbers mean the same thing: what is
-        // left goes to the farm. An even split either way.
+        // left goes to the car area. An even split either way.
         //
-        //   LANDSCAPE  UI on the LEFT, farm on the right — share of the WIDTH
-        //   PORTRAIT   UI at the BOTTOM, farm above — share of the HEIGHT
-        //
-        // It was 0.4 across and a derived portrait value, both sized around a
-        // farm that had a canal, a trencher and a scrolling world to fit. What
-        // is in there now is a crop and three slots, and neither half has a
-        // claim on more than half.
+        //   LANDSCAPE  UI on the LEFT, car area on the right — share of the WIDTH
+        //   PORTRAIT   UI at the BOTTOM, car area above — share of the HEIGHT
         LANDSCAPE_SPLIT: 0.5,
         // LANDSCAPE MERGE COLUMN (coin, grid, spawn button). On a half taller
         // than it needs, the column grows up to LANDSCAPE_GRID_GROW × its
@@ -109,15 +104,14 @@ var CONFIG = {
     BATTERY_START_LEVEL: 1,
     // Coins a new run starts with. Default 2500; raise it to debug later levels.
     START_COINS: 2500,
-    // THE ECONOMY — on the same 2.5× scale as the crop and piggy tables (see
-    // THE ECONOMY'S RULES in cropData.js).
+    // THE ECONOMY. Coins come from distance — see CAR_AREA.COINS_PER_METER.
     ECONOMY: {
         SPAWN_COST_PER_LEVEL: 25,    // a spawn costs this × the spawn level
     },
     BATTERY_IMAGE_EXTENSIONS: ['webp'],
 
      BACKGROUND: {
-        // MATCHED TO THE FARM HALF'S OWN GROUND — partB (the crops) has no
+        // MATCHED TO THE CAR AREA'S GROUND — partB (the car area) has no
         // fill of its own; it is simply the canvas's own backgroundColor
         // showing through (set on the Phaser game config in game.js). Keeping
         // this the same value makes the seam between the two halves disappear
@@ -236,7 +230,7 @@ var CONFIG = {
     SAVE: {
         ENABLED:  false,   // OFF FOR NOW: every load starts fresh, nothing is saved
         LOAD:     true,
-        KEY:      'mergeHarvest.save',
+        KEY:      'mergeDriver.save',
         EVERY_MS: 2000,
     },
 
@@ -517,32 +511,6 @@ var CONFIG = {
         ALPHA:     1,
     },
 
-    // THE PAYOUT, MADE VISIBLE. The player is looking at the merge grid when a
-    // farm pays out, so the coins are drawn big, thrown outward before they fly,
-    // and land as a run of blows on the counter. Small coins sliding neatly into
-    // a corner are invisible to someone looking elsewhere.
-    // ── A PLANT FINISHED ────────────────────────────────────────────────────
-    // Each plant picked clean — the moment it becomes a stump — pays a little:
-    // a puff of dust at its foot, "+N" rising off it and a few coins to the
-    // counter. N is BASE for levels 1–5, 2× for 6–10, 3× for 11–15, and so on,
-    // one step every STEP levels. See _plantDoneReward.
-    PLANT_REWARD: {
-        ENABLED:    true,
-        // false: a finished plant pays nothing — no "+N", no coins, only the
-        // puff (and CROPS.FINISH). true: the coins below.
-        PAY:        false,
-        BASE:       10,
-        STEP:       5,
-        COINS:      3,        // how many fly to the counter
-        COIN_SIZE:  30,       // px @ design
-        FLY_MS:     480,
-        TEXT_SIZE:  26,       // the "+N", px @ design
-        TEXT_MS:    800,
-        PUFF:       true,
-        PUFF_COUNT: 6,
-        PUFF_TINT:  [0xf3e6cc, 0xe2cfaa, 0xcdb58c],
-    },
-
     COIN_REWARD_ANIMATION: {
         COIN_COUNT: 16,                // a shower, not a trickle
         REWARD_COIN_SIZE: 64,          // px @ design scale; the counter's own
@@ -576,7 +544,7 @@ var CONFIG = {
             SIZE:     34,       // px @ design scale. SMALLER than the single
                                 // flight's coins: there are many, they move, and
                                 // they are over the board
-            FARM_SHARE: 0.65,   // the share landing on the farm half; the rest
+            CAR_SHARE: 0.65,    // the share landing on the car area; the rest
                                 // fall over the panel and the grid
             AVOID_POINTER: 90,  // px @ design scale kept clear of a finger that
                                 // is mid-drag
@@ -627,1126 +595,91 @@ var CONFIG = {
             STROKE:   '#ffffff',
             STROKE_W: 0,           // no outline
         },
-        // ── WHERE THE SLOTS STAND ─────────────────────────────────────────
-        // In the FARM half now, a column of three down its left-hand edge with
-        // the crop beside them. They used to live in the UI half inside a
-        // battery-shaped case with a ghosted trencher laid across it; the case,
-        // its plus signs, its terminal, the running total beside it and the
-        // ghost all went with the machine they were describing.
-        FARM_SLOTS: {
-            // The plant's FEET → the slot under it (px @ design). SMALL ON
-            // PURPOSE: a plant and the slot that feeds it are laid out as one
-            // plot, stacked, and it is the closeness that says they belong to
-            // each other. Open this up and they go back to being two things
-            // that happen to share a column.
-            //
-            // Nothing else may sit in this gap — the rate label went UNDER the
-            // slot when the plant took the space above it.
-            SLOT_GAP: 24,
-            // HOW WIDE A PLOT MAY GROW inside its third of the farm half. The
-            // three stand side by side across the half, so this is what keeps
-            // a gap between one plot and the next: the plant is shrunk to fit
-            // it rather than allowed to reach into its neighbour's column.
-            COLUMN_FRAC: 0.86,
-            // PORTRAIT ONLY — how far the outer two plots sit from the centre
-            // one, as a fraction of the full column spread that landscape
-            // still uses at 1. The stacked portrait half is much narrower
-            // than landscape's, and the full spread there puts the side
-            // plants uncomfortably close to the panel's own edges. Applied to
-            // both the plot centres (createSlots) and the crop box's own
-            // width cap (_cropBox) together, so the boxes narrow along with
-            // the gap between them rather than starting to overlap.
-            SIDE_SPREAD_FRAC: 0.7,
-            // How much of the half's HEIGHT one plot's plant is sized against.
-            // It is what the crop box's height comes from, and the plots are
-            // stepped down the half from it — see createSlots.
-            BAND_FRAC: 0.94,
-            // The slot's size as a fraction of plotBandH — the cap, not the
-            // target. A slot is a grid cell wherever there is room for one and
-            // only shrinks when this says it must, which is on a farm half too
-            // short to give three plots a cell's worth. Well under half,
-            // because the plot's height belongs to the plant: the slot is the
-            // short thing standing under it.
-            SLOT_FRAC: 0.62,
-            // HOW FAR THE PLOT'S FLOOR SITS OFF THE HALF'S BOTTOM EDGE (px @
-            // design). The plot used to be centred in whatever the piggy banks
-            // left below them; now it is pinned low instead — a decent gap
-            // under the rate label so the last slot never reads as flush
-            // against the edge, but no longer free to drift up the half when
-            // there is room to spare.
-            BOTTOM_PAD: 56,            // LANDSCAPE only — portrait uses:
-            // PORTRAIT: the rate labels under the slots sit this far above the
-            // line between the two halves (px @ design), with the slots and
-            // plants stacked up from there. The banks stay at the top.
-            PORTRAIT_LINE_GAP: 6,
-        },
-
-        // Battery icons pulse once per charge tick.
-        BATTERY_PULSE_SCALE: 0.6,      // scale the icon springs to
-        BATTERY_PULSE_DURATION: 40,    // ms, one way — halved, to try a faster harvest
-        BATTERY_PULSE_LIFT: 20,         // px @ design scale it rises on the same
-                                       // beat, and comes back down on the yoyo
     },
 
-    // ===================================================================
-    // THE CROP
-    // ===================================================================
-    // What stands in the farm half. One plant per level, its art a single file
-    // holding TWO FRAMES SIDE BY SIDE at the size below: frame 0 is the plant,
-    // frame 1 is its fruit alone, drawn over frame 0 at exactly the same place.
-    // Both frames are full height, so the fruit lands where it hangs with no
-    // offset to tune, and a crop with nothing ripe is the same picture with the
-    // second frame left off.
+    // ── THE PIGGY STEERS ─────────────────────────────────────────────────────
+    // A piggy in a slot is drawn as its piggy with its steering wheel as a
+    // separate sprite on top, and the wheel turns the way a driver's does:
+    // small corrections, now and then a proper turn that is held a moment,
+    // and back to centre. Each slot has its OWN driver (DRIVERS, in slot order)
+    // so the three never move in step.
     //
-    // Scenery for now — nothing grows it and nothing picks it.
-    // ── THE FARM'S NAME AND SIZE ─────────────────────────────────────────────
-    // "<Crop> Farm" and its area, left-aligned in the farm half between the
-    // piggy banks and the plants. The area is the level's three plant figures
-    // added up, over PER_HECTARE — roughly how many of that crop one hectare
-    // grows for real (yield in t/ha over the weight of one). Under 1 ha it is
-    // shown in m² (1 ha = 10,000 m²), otherwise in whole hectares.
-    // ── THE FIELD MAP ───────────────────────────────────────────────────────
-    // A small card top right of the farm half, under the banks: five levels to
-    // a map (1–5, 6–10, …), each a field sized by the SQUARE ROOT of its crop
-    // total. Finished fields are bare, the level being played is clear and
-    // thins out as its crop is harvested, the ones to come stand full, shaded; after
-    // the fifth the card becomes the next batch's. A representation, kept
-    // cheap: a few painted images, updated a few times a second at most.
-    // See _buildFieldMap.
-    FIELD_MAP: {
-        ENABLED:    true,
-        PAD:        24,        // px @ design: the layout's margin in the half
-        GAP:        8,         // the plain strip between fields — no furrows
-                               // or plants — on the one shared brown ground
-        RADIUS:     10,        // field corners
-        ROW_SPACING: 16,       // crop rows and furrows, px @ design
-        DOT_RADIUS: 6.4,       // 12.8 across on a 16 spacing — the most it
-                               // can be without neighbours touching
-        // Every field is ploughed brown; a field still to harvest has rows of
-        // green plants in its furrows, and the harvest clears them.
-        FIELD_COLOR:      '#b48c64',   // muted: a soft soil the crop stands out on
-        FURROW_WIDTH:     4.5,         // a raised row's width — heavy, px @
-                                       // design: the miniature shrinks it to
-                                       // about a quarter
-        // HAND-HEAPED, NOT RULED: each row runs near straight, thickens and
-        // thins a little, some are split in two, and each is shaded as a
-        // raised mound; the soil is flecked with clods. All painted once.
-        FURROW_WOBBLE:    0.02,        // how far a row strays, × ROW_SPACING —
-                                       // near straight; 0 for ruled
-        FURROW_SPLIT_CHANCE: 0.3,      // share of rows broken in two, once
-        FURROW_SPLIT_GAP: 0.35,        // half that break's length, × ROW_SPACING
-        // RAISED ROWS, lit from the top left: a shadow on the far side, a body
-        // a shade lighter than the soil, a highlight along the crest.
-        RIDGE_SHADOW:     'rgba(70,45,25,0.42)',
-        RIDGE_BODY:       '#c7a077',
-        RIDGE_LIGHT:      'rgba(248,226,188,0.75)',
-        CLOD_DENSITY:     0.6,         // flecks per ROW_SPACING² of ground
-        CLOD_DARK:        'rgba(90,60,35,0.28)',
-        CLOD_LIGHT:       'rgba(235,205,160,0.30)',
-        DOT_COLOR:        '#2f9a1c',   // the crop standing in the furrows —
-        PLANT_LIGHT:      '#7fd63a',   // …a green block, with a lighter band on top
-        PLANT_EDGE:       '#1f6e14',   // …and a darker edge
-        PLANT_TILT:       0.12,        // how far a block leans, radians either way
-        PLANT_VARIANTS:   6,           // how many different tufts are drawn
-        PLANT_SIZE:       3.2,         // a tuft's size, × DOT_RADIUS × 2 (each
-                                       // plant then ±18% of that) — big enough
-                                       // that neighbours overlap into a canopy
-        PLANT_SPACING:    1.1,         // plants along a row, × ROW_SPACING —
-                                       // half as many as at 0.55, each twice the size
-        PLANT_JITTER:     0.14,        // how far off its spot, × ROW_SPACING
-        // THE CROP ON EACH PLANT: 1–3 small fruits in the crop's colour among
-        // the leaves, so a field says what grows there.
-        FRUIT_SIZE:       0.22,        // a fruit's radius, × half a tuft
-        CROP_COLORS: {
-            'tomato':        '#DA3923',
-            'corn':          '#FAD02F',
-            'egg-plant':     '#82309F',
-            'melon':         '#DCB883',
-            'potato':        '#CC8D2A',
-            'bell-pepper':   '#F03F1E',
-            'onion':         '#B55177',
-            'pumpkin':       '#F0861D',
-            'strawberry':    '#ff2448',
-            'sunflower':     '#F1C63B',
-            'banana':        '#fff23a',
-            'chilly-pepper': '#C43628',
-            'pineapple':     '#E38C3A',
-            'broccoli':      '#8EB44A',
-            'cabbage':       '#ACD643',
-            'lettuce':       '#CEE53D',
-            'carrot':        '#FC7B12',
-            'tulip':         '#FD517A',
-            'lavender':      '#A563F4',
-            'poppy':         '#FA1E0A',
-            'rose':          '#D51412',
-        },
-        DEFAULT_CROP_COLOR: null,      // a crop not listed: leaves only
-        // THE CROP ICONS shown in a field as it unlocks: <ICON_DIR><crop>-icon.webp,
-        // or the file named here where it differs from the crop's name.
-        ICON_DIR:   'graphics/crop/icon/',
-        ICON_FILES: {},
-        // The card is built this long after the loading screen has gone, not
-        // at boot — it is hidden all through level 1, and painting it there
-        // would count against the load Poki times.
-        BUILD_DELAY_MS: 1000,
-        // PREVIEW ONLY: every section's card, one at a time, where the game
-        // shows it — ‹ › or the arrow keys to step through. Covers the farm
-        // info and crop; does nothing. ENABLED: false to play.
-        PREVIEW: {
-            ENABLED: false,
-            VIEW:    'open',          // 'open' — every field unshaded, all crops
-                                      // shown; 'start' — as the section opens in play
-            DEPTH:   60,
-        },
-        // ── HOW EACH SECTION'S FIELDS ARE LAID OUT ────────────────────────
-        // 'treemap' — squarified rectangles; 'angled' — tilted straight cuts,
-        // quadrilaterals and wedges (CUTS, _angledCuts); 'voronoi' — each
-        // field grown around a seeded point, irregular plots (VORONOI,
-        // _voronoiFields). Sections are 1-based (section 1 = levels 1–5); any
-        // not listed takes DEFAULT. Every section's layout is seeded by its
-        // number, so two sections of the same kind still come out different.
-        LAYOUTS: {
-            DEFAULT: 'voronoi',
-            BY_SECTION: { 1: 'treemap', 2: 'angled', 3: 'angled', 8: 'angled' },
-        },
-        CUTS: {
-            ANGLE_MIN_DEG: 10,        // each cut's tilt off straight, either way
-            ANGLE_MAX_DEG: 35,
-            SPLIT_MIN:     0.3,       // a cut's smaller side takes at least this share
-            MIN_ROUNDNESS: 0.042,     // no field thinner than this (area ÷ perimeter²:
-                                      // square 0.0625, 4:1 strip 0.04); retried if so
-            TRIES:         12,        // layouts tried before the straight-cut fallback
-        },
-        VORONOI: {
-            RELAX_ITERS:    12,       // rounds the points drift to their fields' middles…
-            RELAX:          0.5,      // …moving this share of the way each round:
-                                      // more — rounder, more alike; 0 — wilder shapes
-            ITERATIONS:     200,      // most rounds spent fitting the areas
-            AREA_TOLERANCE: 0.01,     // each field within 1% of its share
-            MIN_ROUNDNESS:  0.042,    // no field thinner than this (area ÷ perimeter²:
-                                      // square 0.0625, 4:1 strip 0.04)
-            TRIES:          6,        // seeds tried for a layout meeting both
-        },
-        // ── A SECTION COMPLETE (every fifth level) ─────────────────────────
-        // The icons wave, "Fields 1–5 Completed!" is stamped on the card, a
-        // bonus showers to the counter (BONUS_FRAC of the five levels' crops,
-        // at the banks' PAYOUT_MULT) — then the next card, which introduces
-        // itself (INTRO). See _celebrateSection / _introSection.
-        SECTION: {
-            ENABLED:  true,
-            // The section's name ("Fields 1–5") over its card, each time the
-            // card comes up after the section's intro (which shows it inside).
-            TITLE: { ENABLED: true, SIZE: 30, GAP: 6, COLOR: '#fff6e0', EDGE: '#3b2a17' },
-            WAVE:     { STAGGER_MS: 130, MS: 240, SCALE: 1.25 },
-            STAMP_SIZE:  40,          // px @ design (never past 7.5% of the card's width)
-            STAMP_TILT:  -6,          // degrees
-            STAMP_FILL:  '#b5452f',
-            STAMP_EDGE:  '#6e2a1c',
-            STAMP_COLOR: '#fff6e0',
-            STAMP_HOLD_MS: 600,       // stamped, before the bonus
-            SHAKE:       true,        // a small screen shake as it lands
-            BONUS_FRAC:  0.25,
-            BONUS_SIZE:  44,
-            BONUS_HOLD_MS: 1400,      // the shower, before the next card
-            // THE NEXT CARD INTRODUCED, shaded, before its first field opens:
-            // "Fields 6–10" and, under it, "N crops" counting from the last
-            // section's total up to its own.
-            INTRO: {
-                ENABLED:     true,
-                TITLE_SIZE:  38,
-                COUNT_SIZE:  30,
-                TITLE_COLOR: '#fff6e0',
-                COUNT_COLOR: '#e8f5c8',
-                EDGE:        '#3b2a17',
-                COUNT_MS:    1400,
-                HOLD_MS:     700,     // the final figure read, before the unlock
-            },
-            DEPTH:       12,
-        },
-        // THE CARD: the crops' whole plot, between levels.
-        MINI: {
-            PAD:        24,    // px @ design, in from the half's left and right
-            GAP:        10,    // px @ design, under the farm info and over the slots
-            BORDER:     0,     // the card's edge, px @ design — 0: none
-            BORDER_COLOR: '#7a5232',
-            CORNER_RADIUS: 0,  // the card's corners, px @ design — 0: sharp
-            DEPTH:      9,     // over the farm half's plants and labels while
-                               // it is up — it is only up between levels
-            // THE HARVEST, AT THE LEVEL'S END ONLY: a front sweeps the field
-            // from one end in SWEEP_MS, each plant rising LIFT × its size over
-            // LIFT_MS at full strength, then fading over FADE_MS.
-            SWEEP_MS:    600,
-            // HIDDEN THROUGH PLAY — shown only when a level ends, IN THE CROPS'
-            // PLACE once they are cleared: in over IN_MS, the sweep, the next
-            // field unlocked, HOLD_MS, out over OUT_MS — and then the next
-            // level's plants grow in.
-            IN_MS:       200,
-            HOLD_MS:     600,   // after the unlock, before it goes
-            OUT_MS:      260,
-            LIFT:        0.35,
-            LIFT_MS:     240,
-            FADE_MS:     140,
-            SWEEP_JITTER: 0.04, // the front: how ragged, × the field's length
-            BAKE_SCALE: 1.25,  // paintings made at the card's own size × this.
-                               // The game draws at a fixed stage size, so 1 is
-                               // already pixel for pixel; a little over keeps
-                               // edges smooth. Memory grows with its square.
-            // Each field's level number, top left inside it — the corner's
-            // only words. The level being played at full strength, the others
-            // muted and a little smaller.
-            NUMBER_SIZE:  20,  // px @ design, as it shows in the corner
-            NUMBER_INSET: 3,   // px @ design, in from the field's top left
-            NUMBER_COLOR: '#fff6e0',
-            NUMBER_STROKE: '#3b2a17',
-            NUMBER_MUTED: 0.45,        // the others' alpha…
-            NUMBER_MUTED_SCALE: 0.8,   // …and size
-            // ONE DARK SHADE over all the fields still to come, as a single
-            // shape — the strips between them included. Not over the field
-            // being played, nor the finished ones.
-            VEIL_ALPHA: 0.35,
-            // A FIELD DONE: its crop's icon stays, with a big bare tick laid
-            // right across it — popped on as the sweep finishes.
-            DONE: {
-                TICK_FRAC:  1.15,      // the tick, × the icon's larger side
-                TICK_MS:    300,
-                AFTER_MS:   250,       // the tick seen, before the next field unlocks
-                // …and as it lands the crop's icon (and name) swells and settles:
-                // up to SCALE and back, MS each way.
-                CHEER: { ENABLED: true, SCALE: 1.2, MS: 260 },
-                TICK_COLOR: '#7d9a5a', // the stroke — a muted sage, in the game's
-                                       // earthy palette rather than a UI green…
-                TICK_EDGE:  '#3b4529', // …its dark olive outline…
-                TICK_LIGHT: 'rgba(236,240,214,0.45)',   // …and a soft sheen on it
-            },
-            // THE NEXT FIELD UNLOCKING: its shade fades off over MS and a puff
-            // of pale dust bursts up out of it.
-            UNLOCK: {
-                MS:         380,
-                // …then the crop's icon appears in the middle of the field, at
-                // its own size, and only after it has swelled does the card go.
-                ICON:       true,
-                ICON_SIZE:  56,    // px @ design, as it shows on the card — every
-                                   // field's the same, whatever its size
-                NAME_SIZE:  21,    // (16 × 1.3) the crop's name over it, px @ design on the card —
-                                   // likewise the same on every field…
-                NAME_FIT:   0.92,  // …unless wider than this share of its field's
-                                   // width: then shrunk to fit, so neighbouring
-                                   // names never run into each other
-                // Shown, the icon (and name) swell and settle once — up to
-                // PULSE_SCALE and back over PULSE_MS — then the card goes.
-                PULSE_SCALE:  1.2,
-                PULSE_MS:     520,
-                AFTER_MS:    1000, // settled, a beat before the card goes
-                PUFF:       true,
-                PUFF_COUNT: 14,
-                PUFF_SIZE:  0.32,  // one cloud, × the field's shorter side
-                PUFF_MS:    650,
-                PUFF_TINT:  [0xfff6e0, 0xefe4cf, 0xdccdb3],
-            },
-            VEIL_COLOR: '#1e1810',
-        },
-        // Timing, ms.
-        SWAP_MS:    380,       // after the fifth: to the next batch's card
+    // How one driver steers: every HOLD_MIN..HOLD_MAX seconds it picks a new
+    // wheel angle — back to centre (CENTER_CHANCE), a big turn of up to BIG_DEG
+    // (BIG_CHANCE), or else a small correction of up to SMALL_DEG — and the
+    // wheel swings there on a spring: STIFFNESS is how quickly (higher =
+    // snappier hands), DAMPING how much it settles rather than overshoots
+    // (1 = no overshoot, below 1 = a little wobble past the mark).
+    STEERING: {
+        DRIVERS: [
+            // Calm on the motorway: small corrections, rarely a real turn.
+            { SMALL_DEG: 18, BIG_DEG: 75,  BIG_CHANCE: 0.10, CENTER_CHANCE: 0.35,
+              HOLD_MIN: 0.6, HOLD_MAX: 1.6, STIFFNESS: 5,   DAMPING: 0.95 },
+            // Lively on a twisty road: quick hands, frequent turns.
+            { SMALL_DEG: 40, BIG_DEG: 120, BIG_CHANCE: 0.25, CENTER_CHANCE: 0.20,
+              HOLD_MIN: 0.3, HOLD_MAX: 0.9, STIFFNESS: 9,   DAMPING: 0.75 },
+            // Lazy and sweeping: long holds, big slow hand-over-hand turns.
+            { SMALL_DEG: 12, BIG_DEG: 170, BIG_CHANCE: 0.30, CENTER_CHANCE: 0.30,
+              HOLD_MIN: 1.0, HOLD_MAX: 2.4, STIFFNESS: 3,   DAMPING: 1.0 },
+        ],
     },
 
-    FARM_INFO: {
-        ENABLED:   true,
-        LEFT_PAD:  28,          // px @ design scale, from the half's left edge
-        POS_FRAC:  0.3,         // where in the bank→plant gap: 0 = against the
-                                // banks, 1 = against the plants
-        // QUIET ON PURPOSE: this is context, not a readout — it never changes
-        // during a level, so it is smaller and lower-contrast than the figures
-        // the player is actually watching.
-        NAME_SIZE: 22,          // px @ design scale
-        AREA_SIZE: 18,
-        LINE_GAP:  0,           // extra space between the two lines
-        TOTAL_FRAC:  0.7,           // "/{total}" at this fraction of NAME_SIZE
-        NAME_FORMAT: 'Level {n}/{total}. {crop} Field',   // {n} = level, {total} = how
-                                    // many levels (CROP_VALUES rows), {crop} = name
-        COUNT_PREFIX: 'Crops harvested: ',  // the line above the area, read
-                                    // as n/m: crops picked so far this level
-                                    // over the level's three plant figures
-                                    // added up
-        SHOW_AREA:   false,         // the area line — off: the field map shows size
-        AREA_PREFIX: 'Area: ',  // before the figure, so it reads as a size and
-                                // not a score. '' for the bare figure
-        NAME_COLOR: '#6b4c2c',  // mid brown, not the near-black of the figures
-        AREA_COLOR: '#7d5f3e',
-        ALPHA:     0.85,
-        // THE REEL on a level turn — see _updateFarmInfo. The window opens to
-        // last level / this / next, slides up one block, holds, and closes.
-        REEL: {
-            ENABLED:    true,
-            SIDE_SCALE: 0.8,    // the blocks either side of the centre, smaller…
-            SIDE_ALPHA: 0.45,   // …and dimmer (× ALPHA)
-            PITCH_FRAC: 1,      // block-to-block distance, × one block's height
-            SHOW_MS:    220,    // the window opening
-            SLIDE_MS:   520,    // the one-block slide up
-            HOLD_MS:    700,    // all three held, before…
-            HIDE_MS:    260,    // …the window closes back to the one
-            EASE:       'Cubic.easeInOut',
-        },
-        DEPTH:     1,          // under every crop layer (root produce is 2),
-                                // so flying produce passes OVER the text
-        // Display names where title-casing the file name is not right.
-        NAMES: {
-            'egg-plant':     'Eggplant',
-            'chilly-pepper': 'Chilli Pepper',
-        },
-        // Produce per hectare — fruits, heads, ears or tubers.
-        PER_HECTARE: {
-            'tomato':         600000,   // ~60 t/ha, ~100 g each
-            'corn':            60000,   // ~1 ear per plant
-            'egg-plant':      250000,
-            'melon':           20000,   // ~1.5 kg each
-            'potato':         250000,   // tubers
-            'bell-pepper':    200000,
-            'onion':          300000,
-            'pumpkin':          5000,   // ~5 kg each
-            'strawberry':    1500000,   // ~15 g each
-            'sunflower':       50000,   // heads
-            'banana':         300000,   // fingers
-            'chilly-pepper': 2000000,   // ~5 g each
-            'pineapple':       50000,
-            'broccoli':        40000,   // heads
-            'cabbage':         35000,
-            'lettuce':         60000,
-        },
-        DEFAULT_PER_HECTARE: 100000,   // any crop not listed above
+    // ===================================================================
+    // THE CAR AREA
+    // ===================================================================
+    // The half beside the merge grid: the three slots stacked down its LEFT
+    // edge, and the rest of it left empty for the car. Every charge tick each
+    // pig in a slot covers its own distance (CHARGE_PER_SECOND_BY_LEVEL, read
+    // as metres per second), and the coins come off that distance.
+    CAR_AREA: {
+        COINS_PER_METER: 1,      // coins earned per metre covered
+
+        // The slot column, down the area's left edge (px @ design).
+        SLOT_COLUMN_PAD: 28,     // area's left edge → slot's left edge
+        SLOT_COLUMN_GAP: 28,     // slot's right edge → where the empty car
+                                 // area starts (see GameScene.carArea)
+        // One slot (with its rate label) gets a third of BAND_FRAC of the
+        // area's height; the slot square is SLOT_FRAC of that, capped at a
+        // grid cell.
+        BAND_FRAC: 0.9,
+        SLOT_FRAC: 0.62,
+        RATE_SUFFIX: ' m/s',     // after each slot's figure
     },
 
-    CROPS: {
-        ENABLED: true,
-        DIR: 'graphics/crop/',
-        EXT: '.webp',
-        // Only START_LEVEL's sheet is in the opening load (assets.js). Once
-        // the loading screen is done, the sheets for this many levels after
-        // the current one are fetched in the background, on every level.
-        PREFETCH_AHEAD: 2,
-        // ONE FRAME'S WIDTH in the file. The HEIGHT is not declared: a frame is
-        // as tall as the file, which varies per crop, and it is read off the
-        // image when the sheet is cut (_sliceCrops). A height written here would
-        // be a second copy of a fact the art already carries, and the two would
-        // eventually disagree — silently, by slicing every frame askew.
-        FRAME_W: 128,
-        // ── THE ROTATION ────────────────────────────────────────────────────
-        // Position is the level, and the list WRAPS: with twenty-one entries,
-        // level 22 is entry 1 again. So the run shows a new crop every level
-        // for twenty-one levels before it comes back round to tomato — by which
-        // point the figures on them are four orders of magnitude bigger.
-        //
-        // The crop cycling is not the progression — CROP_VALUES (cropData.js)
-        // has a row per level all the way to 65, so level 5's tomatoes are worth
-        // far more than level 1's. The rotation is what the level LOOKS like;
-        // the table is what it costs. Adding a crop is one line here, and every
-        // level from then on shifts one along the cycle without a figure moving.
-        //
-        // Each name is a file in DIR: frames side by side, FRAME_W wide, and as
-        // tall as the file — which genuinely varies here (tomato is 175 tall,
-        // corn 238), so nothing declares the height and _sliceCrops reads it.
-        LEVELS: ['tomato', 'sunflower',    'corn',        'egg-plant', 'melon',
-                 'potato',     'bell-pepper', 'onion',     'pumpkin',
-                 'strawberry',  'banana',    'chilly-pepper',
-                 'pineapple',  'broccoli',    'cabbage',   'lettuce',
-                 'carrot',     'tulip',       'lavender',  'poppy',
-                 'rose'],
+    // ── THE CAR ──────────────────────────────────────────────────────────────
+    // One car per slot, built from graphics/car: the right-facing body and two
+    // copies of the tyre. Positions are in the BODY's own pixels — its top-left
+    // at 0,0 — and give each tyre's TOP-LEFT corner. The whole car is then
+    // scaled as one, and placed by the point under its middle where the tyres
+    // meet the ground (see _makeCar), so it always stands ON the line it is
+    // given.
+    CAR: {
+        BODY_W: 254,             // the body art's size, px
+        BODY_H: 107,
+        TYRE_SIZE: 53,           // the tyre art's size, px (square)
+        TYRES: [
+            { x: 32,  y: 76 },   // rear
+            { x: 175, y: 74 },   // front
+        ],
+        TYRES_IN_FRONT: true,    // tyres drawn over the body's dark arches
 
-        // ── WHICH PLOTS ARE MIRRORED ────────────────────────────────────────
-        // By plot, left to right: 0, 1, 2. A plot listed here draws its plant
-        // — and every fruit that plant grows — flipped left to right.
-        //
-        // THE MIDDLE ONE, because the three plots grow the same crop from the
-        // same sheet and stand side by side: without this they are the same
-        // picture three times over, and three identical things in a row read
-        // as one object repeated rather than as three plants. Mirroring the
-        // middle one leans it the other way and hangs its fruit on the other
-        // side, which is enough to break the repeat — and it costs nothing,
-        // being a flip rather than a second drawing.
-        //
-        // Not the outer two as well: 0 and 2 are far enough apart that the eye
-        // does not hold them side by side, and mirroring both would only make
-        // a new pattern out of the three.
-        MIRROR_ROWS: [1],
-        START_LEVEL: 1,
-        // THREE OF THEM, one per battery slot, each on its slot's centre line.
-        // The count is not a setting: it is however many slots there are.
+        // ONE CAR PER SLOT, its road the line through the slot's bottom edge.
+        // Sized to WIDTH_FRAC of the car area's width, but never taller (ground
+        // to roof) than MAX_H_FRAC of a slot. Its LEFT edge sits LEFT_GAP px
+        // (@ design) into the car area — close beside its slot, which is
+        // CAR_AREA.SLOT_COLUMN_GAP away — so the space to its right is free for
+        // the villains (GameScene.villainArea).
+        WIDTH_FRAC: 0.45,
+        MAX_H_FRAC: 1,
+        LEFT_GAP:   0,
+        DEPTH:      4,
 
-        // ── WHAT IS IN FRONT OF WHAT ────────────────────────────────────────
-        // The farm half's whole stack, in one place.
-        //
-        // (SHADOW, PLANT and FRUIT are per plant, inside that
-        // plant's band — see DEPTH below. The order among them is this one.)
-        //
-        //   SHADOW      the flat oval cast on the ground beneath the plant.
-        //               Drawn separately from the sprite so it never swings
-        //               with a shake (see CROPS.SHADOW) — it only ever needs
-        //               to sit behind the plant.
-        //   LEAF        the harvest's leaves, BEHIND every plant.
-        //               In front they crossed the plant's own face once a
-        //               second and read as something thrown AT it; behind, the
-        //               plant covers them as they fall and they read as coming
-        //               off its back — which is where a picked plant actually
-        //               sheds. It stays over the slot square below (drawn at
-        //               3), so leaves falling that far are not swallowed by it.
-        //   PLANT       the leaves
-        //   FRUIT       every crop's produce at rest: ON the plant
-        //   PICKED      any produce while it is being lifted — in front of the
-        //               shadow and the foliage either way, because it has left
-        //               the plant.
-        //   LABEL       the figure, over everything the plant does. Above
-        //               PICKED on purpose: the count is the readout and a fruit
-        //               crossing it once a second would take the one number the
-        //               player is reading
-        DEPTH: {
-            // ONE BAND PER PLANT IN A ROW. A plot's plants stand one behind the
-            // other (see MULTI), and EVERYTHING of a nearer plant — its shadow,
-            // its produce — has to be over everything of the one behind it. So
-            // each plant gets its own band: the backmost of five at ROW_BASE,
-            // each nearer one ROW_STEP higher, the front plant's band the top.
-            // (Backmost of ROW_MAX, strictly.)
-            // Inside a band the four layers stack by BAND's offsets, which
-            // stay under ROW_STEP so no layer reaches the next plant's band.
-            ROW_BASE:   3.5,
-            ROW_STEP:   0.1,
-            ROW_MAX:    5,      // the longest row the bands are laid out for (was 10)
-            BAND: {
-                SHADOW:     0,
-                PLANT:      0.05,
-                FRUIT:      0.08,
-            },
-            LEAF:       3.45,   // under every band, over the slots (3)
-            PICKED:     6,
-            LABEL:      8,
-        },
-
-        // ── THE GROUND SHADOW ────────────────────────────────────────────────
-        // One flat oval per plot, drawn here rather than baked into the sheet.
-        // A shadow baked into the art sits IN the sprite and swings with it on
-        // every shake (see PICK.SHAKE) — the ground appears to tilt, which is
-        // the plant's tug reading as something wrong with the floor instead of
-        // something happening to the plant. Drawn separately it never rotates:
-        // the plant tugs, the shadow stays flat on the ground under it.
-        //
-        // SIZED OFF THE PLANT AS DRAWN (crop.w), not the file, so it tracks
-        // whatever the plant is actually scaled to on any screen. WIDTH_FRAC is
-        // the share of that width the oval spans; ASPECT is width ÷ height,
-        // wider than tall the way a cast shadow actually falls.
-        SHADOW: {
-            ENABLED:    true,
-            WIDTH_FRAC: 0.7,
-            ASPECT:     2.8,        // width ÷ height
-            RAISE:      0.1,        // centre lifted off the plant's foot line by
-                                    // this × the shadow's own height
-            COLOR:      '#000000',
-            ALPHA:      0.20,
-            // SOLID, PRE-MIXED WITH THE GROUND. A see-through shadow darkens the
-            // ground twice where two overlap — a plant's and the one behind it
-            // — and the overlap reads as a darker blot no real shadow makes. So
-            // each is drawn OPAQUE in the colour COLOR-at-ALPHA would give over
-            // GROUND: on its own it looks exactly the same, and overlapping
-            // ones are simply one colour. GROUND has to be the farm half's
-            // floor colour — the canvas background in game.js. null draws them
-            // see-through as before (for a ground that is not one flat colour).
-            GROUND:     '#d5ba95',
-            // A crop's own WIDTH_FRAC, keyed by name, where the default reads
-            // too wide or too narrow — usually because the plant does not fill
-            // its frame the way the reference crop does. Empty until a crop is
-            // actually seen on screen and needs one.
-            OVERRIDES:  {},         // e.g. { corn: 0.45, melon: 0.85 }
-        },
-
-        // ── THE SPRITE SPACE ────────────────────────────────────────────────
-        // A fixed box per plot that every crop is fitted INSIDE, rather than each
-        // crop sizing itself against the plot.
-        //
-        // HEIGHT_FRAC is the box's height as a share of plotBandH (a third of the farm half's height), and it is well
-        // under all of it ON PURPOSE: the rest is the gap between one plant and
-        // the next, which is part of the layout rather than whatever happens to
-        // be left over. Raising it toward 1 closes that gap and the column
-        // starts to read as one mass.
-        //
-        // The box's WIDTH is not set here — it comes from REF's own frame
-        // aspect, which is what LOCKS the space. Every level draws into the same
-        // box, so a later crop on a wider or squatter sheet is contained in it
-        // (never stretched, never cropped) instead of the column lurching about
-        // as the levels turn over. A crop that does not fill the box stands on
-        // its floor, so all three keep one ground line.
-        SPRITE_SPACE: {
-            HEIGHT_FRAC: 0.70,     // of plotBandH
-            // EVERY PLANT DRAWN THIS MUCH BIGGER — height and width, feet
-            // where they were — after the rows are fitted to their columns
-            // (see _rowPlacement). Raising HEIGHT_FRAC does little on a full
-            // row: the column fit shrinks it straight back. 1: as fitted.
-            PLANT_SCALE: 1.2,           // portrait
-            PLANT_SCALE_LANDSCAPE: 1,   // landscape: as fitted
-            REF: 'tomato',         // whose aspect the box is cut to
-            // Used only if REF's art is missing, so the pair still has a width
-            // to be centred on rather than collapsing to the slot alone. Kept
-            // near the real thing: tomato's frame is 128x175.
-            FALLBACK_ASPECT: 0.73,
-        },
-        // OFF, and the code kept. Three plants of the same crop in one column
-        // would carry three identical captions — a caption that repeats is
-        // furniture, not information. Turn it on when the rows can differ.
-        LABEL: false,       // its name, under it
-        LABEL_SIZE: 22,
-        LABEL_COLOR:  '#ffffff',
-        LABEL_STROKE: '#2b2013',
-        LABEL_STROKE_W: 3,
-
-        // ── WHAT IS LEFT IN IT ──────────────────────────────────────────────
-        // The plant's remaining yield, over its head. The figures come from
-        // cropData.js, a row per level and a column per plant; this is only how
-        // that number is drawn.
-        //
-        // Every figure in the game goes through _bigNum, so this reads the same
-        // way the coin counter and the spawn price do — full numbers while they
-        // fit, a unit once they do not.
-        YIELD_LABEL: {
-            ENABLED: true,
-            SIZE:    31,     // px @ design scale — 24 × 1.3
-            GAP:      4,     // UNUSED — the figure now sits under the plant,
-                             // off PLATFORM.CHARGE_RATE_GAP like the slot's
-            // NEAR-BLACK, not pure black — same as CELL.LEVEL_TEXT_COLOR and
-            // this label's own STROKE below, rather than a harsher pure #000.
-            COLOR:  '#2b2013',
-            STROKE: '#ffffff',
-            STROKE_W: 0,         // no outline
-
-            // NOTHING TO TUNE FOR THE CHANGE ITSELF: the figure is set and that
-            // is all. It had a kick on each tick, on the reasoning that a number
-            // stepping down quietly reads as a counter rather than as work —
-            // but the fruit coming off the plant beside it already says the tick
-            // landed, and two announcements of one event get one of them read.
-            //
-            // It is destroyed outright when the plant is spent, rather than
-            // fading: a fade would spend its whole length showing the nought the
-            // figure must never show.
-
-            // WHAT EACH TICK TOOK, as a "-10" beside the figure: it starts just
-            // right of it, drifts further right and fades — the figure itself
-            // stays still, the amount it lost leaves it.
-            DELTA: {
-                ENABLED:   true,
-                SIZE_FRAC: 0.75,      // of the figure's own size
-                COLOR:     '#8a3b1c', // rust — reads as taken away
-                GAP:       4,         // off the figure's right edge, px @ design
-                DRIFT:     42,        // how far right it travels, px @ design
-                MS:        650,
-                EASE:      'Quad.easeOut',
-            },
-        },
-
-        // ── A SPENT PLANT ───────────────────────────────────────────────────
-        // It keeps standing when its figure runs out, but greyed back, so the
-        // three plants say at a glance which still owe work. Without it a spent
-        // plant and a full one look identical from across the screen the moment
-        // the fruit is off either of them.
-        //
-        // ── A ROW OF PLANTS PER PLOT ─────────────────────────────────────────
-        // From level 3 a plot holds more than one plant: the front one being
-        // picked, the rest standing behind it on a diagonal — each a step to
-        // the right, a step up and a little smaller. The plot's figure is split
-        // between them in clean shares (the last takes whatever is left, so the
-        // plot's total stays exact) and they are worked FRONT TO BACK: when the
-        // front plant's share is gone it pops away and the one behind steps up.
-        //
-        // THE FIGURE UNDER THE PLOT is the whole plot's, counting straight down
-        // (PER_PLANT_FIGURE false) — the row itself shows how far along it is,
-        // plant by plant. PER_PLANT_FIGURE true counts the plant being worked
-        // down to its pop instead, then starts on the next, with the DOTS under
-        // it keeping the row's place.
-        //
-        // A tick worth more than what is left on the front plant carries on
-        // into the next, so a strong pig clears several in one go — shown as a
-        // quick chain of pops rather than lost. The LAST plant of a plot is not
-        // popped: it stays standing, spent (see SPENT below), as before.
-        MULTI: {
-            ENABLED: true,
-            // [from level, plants in the RICHEST plot] — the other plots get
-            // plants in proportion to their value (see PROPORTIONAL).
-            // At most 5 (DEPTH.ROW_MAX) — was 1 → 3 → 5 → 8 → 10; capped at 5 so
-            // a row's back plants stay well clear of the piggy banks.
-            COUNTS: [[1, 1], [2, 3], [4, 5]],
-            // Each plant worth about the same across the field: the richest
-            // plot gets the level's full count, the others round(count × their
-            // value ÷ the richest's), at least 1. false: every plot gets the
-            // full count.
-            PROPORTIONAL: true,
-            // PREVIEW ONLY: a number here puts that many plants on every plot
-            // of every level, whatever COUNTS says — to see how a long row
-            // looks. null for the real game. At most DEPTH.ROW_MAX.
-            DEBUG_COUNT: null,
-            // TEST ONLY: every level, one live plant per plot, standing at the
-            // LAST place of a full ROW_MAX row and holding the plot's whole
-            // figure; the places in front of it are stumps. For checking the
-            // harvest from the highest, furthest-back spot. false for the game.
-            DEBUG_BACK_ONLY: false,
-            // PREVIEW ONLY: a panel over the farm half showing every plot's
-            // row as COUNT stumps of CROP, where a real level would stand
-            // them, with a line through each row's feet — for lining the three
-            // rows up. Covers the field; does nothing. ENABLED: false to play.
-            STUMP_PREVIEW: {
-                ENABLED:     false,
-                CROP:        'tomato',
-                COUNT:       10,
-                GUIDES:      true,
-                GUIDE_COLORS: [0xd0342c, 0x2c7bd0, 0x2ca24a],   // plot 1, 2, 3
-                // Flat lines from row 1's front and back stumps to the right
-                // edge — the level the other rows are read against.
-                LEVEL_LINES: true,
-                LEVEL_LINE_COLOR: 0x2b2013,
-                PANEL_ALPHA: 1,
-                DEPTH:       60,
-            },
-            // PREVIEW ONLY: a panel over the farm half with all three rows
-            // standing as whole plants of CROP, COUNTS to a row, where a real
-            // level would stand them. A bar at its top left changes the crop
-            // and each row's count live. Covers the field; does nothing.
-            // ENABLED: false to play.
-            CROP_PREVIEW: {
-                ENABLED:     false,
-                CROP:        'tomato',
-                COUNTS:      [5, 5, 5],      // plot 1, 2, 3 — at most DEPTH.ROW_MAX
-                // THE PLANTS' ROOM — the band between the farm info and the
-                // slots — shaded light under them, with an outline round what
-                // the rows actually take and the share of it. false: plants only.
-                AREA:        true,
-                AREA_COLOR:  '#fff3d6',
-                AREA_ALPHA:  0.7,
-                USED_COLOR:  '#d0342c',
-                PANEL_ALPHA: 1,
-                DEPTH:       62,
-            },
-            PER_PLANT_FIGURE: false,
-            // ONE-POINT PERSPECTIVE: every row's front plant stands on its
-            // slot; each plant behind moves SCALE_STEP of the way toward a
-            // vanishing point above the middle of the farm and shrinks by the
-            // same fraction — see _rowPlacementPerspective.
-            //
-            // How high that point is, in plant heights above the foot line.
-            // Higher: each plant behind rises more — a gentler, more top-down
-            // field. Lower: flatter rows that converge harder.
-            VP_RISE:    3,
-            // Each plant behind nudged alternately right and left by this ×
-            // its own width, so the middle row (which recedes straight up)
-            // peeks out past the one in front. 0 for straight lines.
-            ZIGZAG:     0.15,
-            SCALE_STEP: 0.035,  // per plant behind: how far toward the point, and how much smaller
-                                // (0.05 took the 10th plant 45% of the way up and
-                                // too close to its piggy bank)
-            // Every other plant in a row mirrored, fruit and stump with it — a
-            // row of one picture reads as copies until they face different ways.
-            ALTERNATE_FLIP: true,
-            // Each plant up to this much taller or shorter (±), so a row is not
-            // a line of identical heights. Height only; its fruit stretches
-            // with it. 0 for all the same.
-            HEIGHT_JITTER: 0.08,
-            // The ones not yet being worked — 1 is fully solid, lower dims them
-            // until their turn comes.
-            WAITING_ALPHA: 1,
-            WAKE_MS:    180,    // a waiting plant coming up to full strength
-            POP_MS:     200,    // a finished plant going, swelling as it fades
-            POP_SCALE:  1.15,
-            CHAIN_MS:   90,     // between pops when one tick clears several
-            // ONE DOT PER PLANT under the figure: filled once that plant is
-            // done, hollow while it is still to come (●●○○ — two done, two
-            // left). Only on plots with more than one plant. The plot is laid
-            // out with room for them on every level, so the slots do not jump
-            // when the rows start.
-            DOTS: {
-                ENABLED:  false,
-                SIZE:     5,         // radius, px @ design scale
-                GAP:      5,         // between dots
-                TOP_GAP:  2,         // under the figure
-                COLOR:    '#2b2013', // the figure's own colour
-                STROKE_W: 1.5,       // a hollow dot's ring
-                // THE PLANT BEING WORKED: its ring with a small dot inside, this
-                // fraction of the ring's radius — ●◉○○ — so the row reads as
-                // done, now, still to come.
-                CURRENT_FRAC: 0.4,
-            },
-        },
-
-        // ── A HARVESTED PLANT LEAVES A STUMP ─────────────────────────────────
-        // Every plant, once its share is picked, is cut down where it stands:
-        // no stump art — the plant itself is cropped to its bottom KEEP of its
-        // height (and the middle KEEP_W of its width), so every crop's stump
-        // is its own base, over a shadow cut to SHADOW_FRAC. Off (or KEEP not
-        // set), a finished plant goes back to the SPENT look below.
-        STUMP: {
-            ENABLED:     true,
-            SHADOW_FRAC: 0.5,
-            KEEP:        0.15,  // the tallest a stump is, × the plant's height…
-            KEEP_MIN:    0.10,  // …and the shortest: each plant picks its own
-            KEEP_W:      0.1,   // …and only this middle share of its width —
-                                // 5% either side of the centre
-            // A SLANTED CUT, not a flat one: the top at this many degrees off
-            // level, across the kept width (KEEP stays its middle). Which side
-            // is high is picked per plant. 0 for flat.
-            SLANT_DEG:   30,    // the steepest cut…
-            SLANT_MIN_DEG: 10,  // …and the shallowest: each plant picks its
-                                // own angle between the two
-            // A LINE ALONG THE TOP OF THE CUT: a dark copy of the stump raised
-            // WIDTH art pixels behind it, so only the band above shows.
-            // Scales with the plant. ENABLED false for none.
-            STROKE: {
-                ENABLED: true,
-                WIDTH:   1,           // art px (a frame is 128 wide)
-                COLOR:   '#052D03', //2b2013
-                ALPHA:   1,
-            },
-        },
-
-        // TINT AND ALPHA TOGETHER. Alpha alone lets the ground through and reads
-        // as the plant half-deleted; darkening it as well reads as a plant in
-        // shade — still there, out of the light. Tint MULTIPLIES, so this can
-        // only darken: a value near white barely shows, and the lower it goes
-        // the deeper the shade.
-        SPENT: {
-            ENABLED: true,
-            // HALF THE STEP BACK it started at (#8f8f8f / 0.72), which was deep
-            // enough that a finished plant read as disabled rather than as done.
-            // It only has to be distinguishable from the plants still working,
-            // and they are right beside it to compare against.
-            TINT:   '#c7c7c7',
-            ALPHA:   0.86,
-            // SHRUNK A LITTLE TOO — a spent plant standing at full size but
-            // greyed reads as merely dimmed; a touch smaller reads as
-            // wilted. UNIFORM on both axes, so it settles evenly rather than
-            // squashing sideways or thinning vertically. The plant is
-            // foot-anchored (setOrigin 0.5,1 in buildCrops), so it settles
-            // straight down from its own crown while its feet stay on the
-            // row's ground line.
-            SCALE_FRAC: 0.5,    // half its size once spent
-            MS:      160,   // halved from 320, twice as fast — eased in rather
-                            // than snapped: it lands on the same frame as the
-                            // last fruit leaving, and two hard changes at once
-                            // read as a glitch
-        },
-
-        // ── TURNING THE FIELD OVER ──────────────────────────────────────────
-        // All three plants spent, so the level is finished: the bare stalks are
-        // cleared and three new ones grow in — the next crop on the rotation,
-        // carrying the next row of CROP_VALUES.
-        //
-        // NOTHING INTERRUPTS. The batteries stay in their slots, the merge grid
-        // is untouched, and there is no screen and no score — the slots simply
-        // go quiet for the moment their plants are gone and start again on the
-        // new ones. The player never stopped playing the half they were in.
-        NEXT_LEVEL: {
-            DELAY_MS:  700,   // a beat with the field standing finished, before
-                              // anything is taken away. Without it the last
-                              // plant is cleared on the frame it is emptied and
-                              // the level ends before it is seen to
-            CLEAR_MS:  420,   // the old plants going
-            CLEAR_SHRINK: 0.8,
-            CLEAR_EASE: 'Back.easeIn',
-            // The new ones coming up. FROM is a fraction of full size: the plant
-            // is pinned by its foot, so scaling it up IS growth out of the
-            // ground, and it can start as small as it likes.
-            FROM:      0.2,
-            GROW_MS:   460,
-            GROW_EASE: 'Back.easeOut',
-        },
-
-        // ── ONE PICK ────────────────────────────────────────────────────────
-        // What a tick looks like. Two things happen at once, and that is the
-        // point of it:
-        //
-        //   the fruit LEAVES     the plant's own sprite lifts straight off it
-        //                        over MS and is gone. It detaches the instant
-        //                        the pick lands, so it is no longer the plant's
-        //   a new one GROWS      REGROW_MS later — long before the first has
-        //                        cleared the frame — swelling from POP_FROM of
-        //                        full size to full over POP_MS
-        //
-        // REGROW_MS + POP_MS IS THE FIGURE THAT MATTERS, and it must come in
-        // under the one-second tick: 140 + 420 = 560ms, so the plant is carrying
-        // fruit again with most of the beat to spare. MS is free of that — a
-        // fruit still climbing when the next pick lands is fine, they are
-        // different objects. Wind the two past 1000 and picks start landing on a
-        // bare plant, and the game says so in the console.
-        //
-        // There is no fade on the way up. A fruit that dissolves as it leaves is
-        // a flourish; one that simply goes, and is simply grown again, is a
-        // harvest.
-        PICK: {
-            ENABLED: true,
-            // THE LIFT STOPS at LIFT_FRAC of the vertical way from the TOP OF
-            // THE PLANT to its bank's BOTTOM edge (0.5: half way) — the same height
-            // for every fruit off one plant, and never at the bank. At least
-            // LIFT_MIN of a plant height, so the pluck always shows.
-            LIFT_FRAC: 0.5,
-            LIFT_MIN:  0.12,
-            MS:   220,       // halved from 420, to try a faster harvest
-            EASE: 'Sine.easeOut',
-
-            // ── THE TUG ─────────────────────────────────────────────────────
-            // The plant leans as its fruit is pulled off it, and comes back.
-            // DELIBERATELY SMALL: the fruit leaving and the leaves scattering
-            // already say a pick landed, and a plant thrashing on top of them
-            // is a third voice saying the same thing. Two degrees is felt more
-            // than it is seen, which is all this is for.
-            //
-            // It pivots at the plant's FOOT (its origin), so the lean is a stem
-            // being tugged rather than the whole picture rocking.
-            SHAKE: {
-                ENABLED: true,
-                ANGLE:  2.2,    // degrees. Past ~5 it stops reading as a tug
-                                // and starts reading as wind
-                MS:      95,    // one way; it yoyos back over the same time
-                REPEAT:   0,    // extra out-and-backs. 1 gives a double tug
-                EASE: 'Sine.easeOut',
-            },
-
-            // ── THE NEW FRUIT ───────────────────────────────────────────────
-            // A few beats after the pick, not after the flight: there is a
-            // moment of bare plant to see, and then it grows while the picked
-            // one is still on its way up.
-            REGROW_MS: 140,
-            // A fraction of the fruit's REST size, and it can go as low as it
-            // likes: the fruit is centred on the plant rather than pinned by its
-            // foot, so a scale happens about where fruit actually hangs instead
-            // of dragging it up from the plant's ankles.
-            POP_FROM: 0.15,
-            POP_MS:   420,
-            // Back overshoots a little past full size before settling, which is
-            // what makes it read as arriving. 'Quad.easeOut' for a strict climb
-            // from POP_FROM to 1 with no overshoot at all.
-            POP_EASE: 'Back.easeOut',
-        },
-
-        // ── THE PIGGY BANKS ─────────────────────────────────────────────────
-        // Three of them in a row ABOVE the field, and every fruit a plant gives
-        // up ends inside the one that belongs to its plot: left plant to left
-        // bank, middle to middle, right to right.
-        //
-        // WHY THEY ARE PULLED IN TOWARD THE CENTRE. Sat directly over their own
-        // plants the three flights would be three identical straight lines, and
-        // a straight line up reads as the fruit simply leaving — which is what
-        // it did before there was anywhere for it to go. Closing the row up
-        // (SPREAD below 1) turns the outer two into diagonals: the left plant
-        // throws up and to the RIGHT, the right plant up and to the LEFT, and
-        // the middle one straight up. Three lines converging on one place is
-        // what says the field is feeding something.
-        //
-        // THEY ARE FURNITURE, NOT PART OF THE PLOT. The row hangs off the TOP
-        // EDGE of the farm half on TOP_PAD, the way a coin counter does, so it
-        // keeps one line whatever crop is in the field and however tall the half
-        // is. The plants stay centred in the half below and are only pushed down
-        // if the two would actually meet — see createSlots.
-        PIGGY: {
-            ENABLED: true,
-            SIZE:  81,      // the bank's HEIGHT in design px; width follows the
-                            // art's own aspect, so a bank that is not square is
-                            // not squashed into a square
-            TOP_PAD: 15,    // from the half's top edge — which is the screen's,
-                            // in both orientations (px @ design)
-            GAP:   10,      // the clearance kept under the row: the plot is
-                            // pushed below this if it would otherwise reach up
-                            // into the banks (px @ design)
-            // HOW FAR THE OUTER TWO SIT FROM THE CENTRE, as a fraction of how
-            // far their PLANTS sit from it. 1 puts each bank directly over its
-            // own plant (three vertical flights, no convergence); 0 stacks all
-            // three on the centre line. Around half is the useful range: the
-            // pairing is still obvious — the nearest bank to a plant is its own
-            // — while the outer flights are clearly diagonal.
-            //
-            // IT IS A CENTRE-TO-CENTRE FIGURE, so it does not know how wide the
-            // banks are: tightening it after SIZE went up by half ran the three
-            // of them into each other. Spread and size have to be tuned as a
-            // pair — if SIZE rises again, this has to come up with it.
-            SPREAD: 0.5,
-            // SMALL, MEDIUM, LARGE — each bank's size as a fraction of SIZE,
-            // picked by how its payout RANKS against the other two, never by
-            // how much bigger it is. Close on purpose: enough to read, not a
-            // bank half the size of its neighbour.
-            SIZE_STEPS: [0.84, 0.92, 1],
-            // THE PAYOUT OVER EACH BANK: what it pays in coins when it bursts
-            // (the plant's figure × PAYOUT_MULT), with a coin beside it. Hidden
-            // with the bank as it goes; back with the next level's banks.
-            LABEL: {
-                ENABLED:   true,
-                SIZE:      24,       // px @ design scale
-                GAP:       2,        // label bottom → bank top (px @ design)
-                ICON_FRAC: 1,        // coin height as a fraction of SIZE
-                ICON_GAP:  4,        // figure → coin (px @ design)
-                // Colour and stroke come from COIN_COUNTER, so the two match.
-            },
-            DEPTH:  7,      // OVER the flying fruit (CROPS.DEPTH.PICKED = 6), so
-                            // produce vanishes INTO the bank rather than on top
-                            // of it, and under the yield figures (8)
-
-            // ── THE SECOND STEP ─────────────────────────────────────────────
-            // A pick is two moves now, not one. The fruit still lifts off the
-            // plant exactly as it did (CROPS.PICK.RISE/MS/EASE) — that beat is
-            // the harvest, and it happens over the plant where it can be read.
-            // Only when that has finished does it set off for its bank.
-            //
-            // Splitting them is the whole point: one long curve from plant to
-            // bank has no moment of "picked" in it, and the pick is the thing
-            // the tick is announcing. Lift, hang, then go.
-            FLY: {
-                MS:   440,       // half speed of the 220 tried earlier — double the duration
-                // ACCELERATING AWAY. The fruit is at rest at the top of its lift
-                // and has to start moving from there; easing IN means it creeps
-                // off, gathers pace and arrives fast, which is what being drawn
-                // to something looks like. Ease out would have it shoot off and
-                // coast, which reads as thrown.
-                EASE: 'Cubic.easeIn',
-                // It shrinks on the way, to a fraction of the size it left at —
-                // partly distance, mostly so a full-sized tomato does not have
-                // to fit through the slot of a bank half its width.
-                // Down to this share of its size as it goes into the bank —
-                // small enough to read as taken in, not parked on top.
-                SHRINK: 0.5,
-                // And faded out over the last stretch of the flight, from this
-                // share of the way (1 = no fade). It flies OVER the bank.
-                FADE_FROM: 1,
-                // Stagger, so three banks fed on the same tick are not three
-                // identical flights in lockstep. Multiplied by the plot index.
-                STAGGER_MS: 45,
-            },
-
-            // ── THE BANK TAKES IT ───────────────────────────────────────────
-            // A short squash on arrival. This is the only acknowledgement there
-            // is — the figure over the plant already said what was taken, so the
-            // bank only has to show that it landed somewhere.
-            POP: {
-                ENABLED: true,
-                SCALE: 1.14,
-                MS:     110,
-                EASE: 'Quad.easeOut',
-            },
-
-            // ── THE PAYOUT ───────────────────────────────────────────────────
-            // What a plant is WORTH once it is stripped for good, in coins. Off
-            // the plant's own TOTAL yield — the figure it started the level
-            // holding — rather than a new number invented for this: the yield
-            // table (cropData.js) is already tuned so it climbs with the level,
-            // and a payout that rides the same curve needs nothing of its own to
-            // keep in step as more levels are authored. MULT is the one knob if
-            // the coin economy ever needs to move independently of it.
-            PAYOUT_MULT: 1,
-
-            // ── THE BANK GOING OFF ───────────────────────────────────────────
-            // A plant fully stripped empties its bank: a beat of visible strain,
-            // then it bursts and is gone, and what it held scatters as coins —
-            // see _explodePiggy. No sprite of its own; the bank's own art does
-            // the whole thing on a tween.
-            EXPLODE: {
-                ENABLED: true,
-                // THE TENSION. A squeeze-and-swell, tighter each time, so it
-                // reads as building rather than as one pulse repeated — WIND_UP
-                // is how many extra cycles it takes past the first before it
-                // goes. Position wobbles a couple of px in time with it: a bank
-                // under strain trembles, it does not glide.
-                //
-                // HALVED FROM THE FIRST PASS (was 0.90 / 1.12 / 3px): at the
-                // full swing it read as bobbing in place rather than straining
-                // — closer to floating than to something about to go.
-                SQUEEZE: 0.95,     // scale at the bottom of a squeeze
-                SWELL:   1.06,     // scale at the top, just before it goes
-                CYCLE_MS: 110,     // one squeeze-to-swell, one way
-                WIND_UP:  2,       // extra cycles before the final one bursts
-                JITTER:   1.5,     // px @ design, the trembling
-                // THE BURST. Past SWELL, one fast lunge further out while it
-                // fades — an explosion overshoots outward, it does not shrink
-                // to nothing — and then it is simply gone: hidden, not
-                // destroyed, so the same sprite is there, at rest, the next time
-                // this plot grows a plant worth bursting for.
-                BURST_SCALE: 1.275,   // halved from 1.55 (extra scale 0.55 → 0.275)
-                BURST_MS:     140,
-                BURST_EASE: 'Quad.easeIn',
-                // THE SPLINTERS. As the bank goes, a spray of wood chips goes
-                // with it — radial, every way at once, pulled down by GRAVITY
-                // and fading as they fall. Sized against the bank's own
-                // height so they stay in proportion to it.
-                //
-                // COLORS ARE SAMPLED FROM graphics/ui/piggy_bank.webp: the light
-                // grain, the body, the shaded underside and its dark outline.
-                CHIPS: {
-                    ENABLED: true,
-                    COUNT:   18,
-                    SIZE_FRAC: 0.16,   // a chip's length, of the bank's height
-                    SCALE_MIN: 0.5,    // the smallest of them, against that size
-                    SPEED_MIN:  90,    // px/s @ design scale
-                    SPEED_MAX: 260,
-                    GRAVITY:   520,
-                    LIFE_MIN:  420,    // ms
-                    LIFE_MAX:  760,
-                    COLORS: [0xf0c084, 0xe4a86c, 0xcc8448, 0xb46c3c, 0x482418],
-                    TEXTURE_PX: 24,    // the baked chip's resolution only
-                },
-            },
-        },
-
-        // ── THE LEAVES A PICK THROWS ────────────────────────────────────────
-        // A handful of small green leaves burst out of the canopy on every
-        // pick and fall away past the plant. The fruit leaving says WHAT was
-        // taken; the leaves say it was taken off something living — a plant
-        // that gives its produce up without being disturbed reads as a vending
-        // machine, not a crop.
-        //
-        // OUT AND UP, THEN DOWN. They are thrown into the upper half of the
-        // circle (ANGLE_MIN..MAX, degrees, -90 being straight up) and GRAVITY
-        // turns each one over and brings it down, so the shape of the burst is
-        // a spray rather than a drip. Wind ANGLE toward -90 for a fountain,
-        // widen it toward 0/-180 for a sideways scatter.
-        LEAF_BURST: {
-            ENABLED: true,
-            COUNT:   9,        // leaves per pick
-            // The leaf's length as a share of the PLANT's height, so they stay
-            // in proportion to the crop that threw them rather than to the
-            // screen.
-            SIZE_FRAC: 0.17,
-            SCALE_MIN: 0.7,    // the smallest of them, against that size
-            // Speeds and the pull are px/second at the design scale; the game
-            // scales them with everything else.
-            SPEED_MIN:  45,
-            SPEED_MAX: 130,
-            GRAVITY:   420,
-            ANGLE_MIN:   15,
-            ANGLE_MAX:  165,
-            LIFE_MIN:  620,    // ms. The spread between the two is what keeps
-            LIFE_MAX: 1050,    // them from falling and fading in step
-            // FOUR GREENS, not one: a burst in a single flat green reads as
-            // confetti. Picked at random per leaf.
-            COLORS: [0x6ab04c, 0x4e9a3e, 0x8bc34a, 0x3f7d33],
-            // The baked leaf's own size in px. It is only the drawing's
-            // resolution — SIZE_FRAC is what decides how big one looks — so
-            // raise it only if the leaves look soft on a large screen.
-            TEXTURE_PX: 24,
-        },
-
-        // ── A PLANT PICKED CLEAN ────────────────────────────────────────────
-        // When a plant's last fruit goes and it turns to a stump: the plant
-        // flashes, squashes down into its foot and fades, the stump pops up in
-        // its place, and a ring of dust spreads along the ground from the foot.
-        // Nothing here depends on the crop's shape, so it reads the same on
-        // onion as on tomato. Not played on a restore/relayout.
-        FINISH: {
-            ENABLED:     true,
-            FLASH_MS:    0,         // white first, this long; 0 for none
-            FLASH_COLOR: '#ffffff',
-            COLLAPSE:    true,
-            COLLAPSE_MS: 400,
-            COLLAPSE_EASE: 'Back.easeIn',
-            SQUASH_X:    1.15,      // the plant's width and height at the end
-            SQUASH_Y:    0.08,      // of it, × its own
-            POP:         true,      // the stump from POP_FROM of its size, overshooting
-            POP_FROM:    0.6,
-            POP_MS:      220,
-            RING:        true,
-            RING_FROM:   0.35,      // its width, × the plant's, at the start…
-            RING_TO:     1.3,       // …and at the end
-            RING_ASPECT: 3,         // wide over tall — lying on the ground
-            RING_W:      4,         // line, px @ design
-            RING_COLOR:  '#e2cfaa', // the puff's dust
-            RING_ALPHA:  0.85,
-            RING_MS:     420,
-        },
+        // THE TYRES TURN while the car's slot has a piggy driver in it. Both
+        // tyres of a car share one angle. They speed up to SPIN_DEG_PER_SEC
+        // when a piggy is put in and coast to a stop when it is taken out —
+        // SPIN_EASE is how quickly they get there (per second).
+        SPIN_DEG_PER_SEC: 540,
+        SPIN_EASE:        4,
     },
 };
 
@@ -1754,45 +687,10 @@ var CONFIG = {
 // Battery image helpers
 // -------------------------------------------------------------------
 
-var BATTERY_IMAGE_PATHS = {};
-
-function checkFileExists(url) {
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload  = () => resolve(true);
-        img.onerror = () => resolve(false);
-        img.src = url;
-    });
-}
-
-async function initBatteryImagePaths() {
-    if (typeof BATTERY_TYPES === 'undefined' || !BATTERY_TYPES) {
-        console.error('BATTERY_TYPES not found! Make sure batteryChargeData.js is loaded first.');
-        return;
-    }
-    
-    // Build paths directly from BATTERY_TYPES - no network probing needed
-    const highestLevel = getHighestBatteryLevel();
-    
-    for (let level = 1; level <= highestLevel; level++) {
-        const batteryData = getBatteryData(level);
-        if (!batteryData) continue;
-        BATTERY_IMAGE_PATHS[level] = batteryData.path;
-    }
-    
-    if (CONFIG.DEBUG_LAYOUT) console.log(`Registered ${Object.keys(BATTERY_IMAGE_PATHS).length} battery sprites`);
-}
-
-function loadBatteryImagesFromCache(scene) {
-    for (const level in BATTERY_IMAGE_PATHS) {
-        const path = BATTERY_IMAGE_PATHS[level];
-        if (path) scene.load.image(`battery${level}`, path);
-    }
-}
-
-// WHICH OF THE 28 PICTURES a level shows. Past the last real one it WRAPS,
-// not clamps — level 29 shows item_01 again, level 56 shows item_28, level 57
-// wraps back to item_01, and so on forever. This is the one place that
+// WHICH OF THE 90 PICTURES a level shows (one per steering wheel — see
+// ITEM_ART). Past the last one it WRAPS, not clamps — level 91 shows level 1's
+// picture again, and so on forever. The piggy inside the picture loops on its
+// own every 28 (itemPiggyIndex). This is the one place that
 // decision is made: everywhere else that draws a pig's icon calls this first
 // (see AssetManager and every dressWhenReady call site in game.js), so a
 // change here is a change everywhere at once.

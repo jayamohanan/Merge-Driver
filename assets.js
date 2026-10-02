@@ -32,23 +32,18 @@ function assetList() {
 }
 
 // ── SHARED ART ───────────────────────────────────────────────────────────────
-// Everything the game needs: the merge grid's UI and the crop on show. There is
-// no per-level fetching any more — the farm, its maps and the art that only
-// some levels drew went with the trencher — so this one list is the whole of it.
+// Everything the game needs: the merge grid's UI. There is no per-level
+// fetching — this one list is the whole of it.
 function sharedAssets() {
     const A = assetList();
 
-    // THE PICTURE THE STARTING PIG WEARS, not its level: past the last item
-    // the art loops (getBatteryIconLevel — level 98 wears item_14), and every
-    // sprite asks for its texture by that looped number. Preloading the raw
-    // level asked for a file that does not exist, and the first pig was built
-    // on Phaser's placeholder instead.
+    // THE STARTING PIG'S TWO PICTURES — its piggy and its steering wheel —
+    // by the LOOPED icon level (getBatteryIconLevel). The scene draws them
+    // into one texture in create (AssetManager.composeBattery).
     const startIcon = getBatteryIconLevel(CONFIG.BATTERY_START_LEVEL);
-    const startData = getBatteryData(startIcon);
-    if (startData) A.image(`battery${startIcon}`, startData.path);
+    A.image(itemPiggyKey(startIcon), itemPiggyPath(startIcon));
+    A.image(itemWheelKey(startIcon), itemWheelPath(startIcon));
     A.image('coin',       'graphics/ui/merge-grid/coin.webp');
-    // Where the harvest goes — three of them over the field, one per plot.
-    A.image('piggy_bank', 'graphics/ui/piggy_bank.webp');
     A.image('point',      'graphics/ui/merge-grid/point.webp');
     A.image('button',     'graphics/ui/merge-grid/spawn_button.webp');
     // The level-up-all button — text, icon and all baked into the one file,
@@ -61,45 +56,14 @@ function sharedAssets() {
     // Grain for the cell faces: neutral grey + blurred noise, blended over the
     // flat colour at bake time (see _makeCellTextures).
     A.image('cell_noise', 'graphics/ui/merge-grid/cell_noise.webp');
-
-    // THE CROPS — one file each, frames side by side (plant, then fruit alone).
-    // ONLY THE OPENING LEVEL'S. The load before the first frame is what Poki
-    // times, and fifteen sheets the player will not see for minutes have no
-    // business in it. The rest are fetched in the background once the game is
-    // up, a level or two ahead (CROPS.PREFETCH_AHEAD, _prefetchCrops), and a
-    // level turn waits for its sheet if it somehow is not in yet.
-    //
-    // AS PLAIN IMAGES, not spritesheets. A frame is FRAME_W wide and as tall as
-    // the file, and how tall that is varies per crop — a tree's sheet is not a
-    // tomato's. Phaser wants both figures at load time, before the file exists,
-    // so the height would have to be declared here and kept in step with the art
-    // by hand; declare it wrong and the frames slice silently askew. The scene
-    // cuts them instead, once the real dimensions are in hand (_sliceCrops).
-    const C = CONFIG.CROPS || {};
-    if (C.ENABLED !== false) {
-        const first = cropForLevel(C.START_LEVEL || 1);
-        if (first) A.image(cropSrcKey(first), cropFileOf(first));
-    }
+    // The car: a right-facing body and the one tyre, used twice per car
+    // (see CONFIG.CAR / _makeCar).
+    A.image('car_body', 'graphics/car/body.png');
+    A.image('car_tyre', 'graphics/car/tyre.png');
     return A.list();
 }
 
-// WHICH CROP A LEVEL GROWS — CROPS.LEVELS, wrapping. The scene's
-// _cropForLevel is this; it lives here so the opening list can use it too.
-function cropForLevel(level) {
-    const names = (CONFIG.CROPS || {}).LEVELS || [];
-    if (!names.length) return null;
-    const lvl = level >= 1 ? Math.floor(level) : 1;
-    return names[(lvl - 1) % names.length];
-}
-
-// The key the raw FILE loads under. The sliced spritesheet takes `crop_<name>`,
-// so the two cannot collide.
-function cropSrcKey(name) { return `crop_${name}_src`; }
-
-// Where a crop's sheet lives. Entries are plain NAMES and the extension comes
-// from config; one that names its own extension keeps it.
-function cropFileOf(entry) {
-    const C = CONFIG.CROPS || {};
-    const f = String(entry);
-    return `${C.DIR || 'graphics/crop/'}${/\.[^.]+$/.test(f) ? f : f + (C.EXT || '.png')}`;
-}
+// The keys an item's two SOURCE pictures load under. The finished item is
+// `battery<iconLvl>`, so none of these can collide with it.
+function itemPiggyKey(iconLvl) { return `item_piggy_${itemPiggyIndex(iconLvl)}`; }
+function itemWheelKey(iconLvl) { return `item_wheel_${iconLvl}`; }
