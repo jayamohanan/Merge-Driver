@@ -216,6 +216,15 @@ class GameScene extends Phaser.Scene {
         this.villainArea       = null;   // …and what the cars leave of it
         this.cars              = [];     // one per slot, on its slot's road line
         this.steeringItems     = [];     // slot piggies whose wheels turn
+        // ── The level: one villain per lane ──────────────────────────────
+        // lanes[i] is lane i's chase: how far its car still is from its
+        // villain (`left`, of `total`), what catching it pays, and whether it
+        // has been caught. See levelData.js.
+        this.level             = 1;
+        this.lanes             = null;
+        this.villains          = [];     // one sprite per lane
+        this.laneLabels        = [];     // the distance over each car
+        this._levelTurning     = false;  // between the last catch and the next level
 
         // Layout state for responsive design
         this.isPortrait         = true;  // Detected in create()
@@ -603,6 +612,7 @@ class GameScene extends Phaser.Scene {
     _unsettledBy() {
         if (this.draggingBattery) return 'a pig is being dragged';
         if (this.isWatchingAd)    return 'an ad is playing';
+        if (this._levelTurning)   return 'a level turn';
         if ((this._coinFlights || 0) > 0) return 'coins in flight';
         const t = this.tweens.getTweens().filter((tw) => !tw.isInfinite).length;
         return t ? `${t} tween(s) running` : null;
@@ -642,6 +652,8 @@ class GameScene extends Phaser.Scene {
         for (const p of this.platforms) { gone(p.slotBg); gone(p.slotBgFilled); gone(p.chargeRateText); }
         for (const car of this.cars) gone(car);
         this.cars = [];
+        for (const o of [...this.villains, ...this.laneLabels]) gone(o);
+        this.villains = []; this.laneLabels = [];
         gone(this.coinIcon);
         gone(this.coinText);
         gone(this.spawnButton);
@@ -663,6 +675,8 @@ class GameScene extends Phaser.Scene {
         // The car area: the slot column down its left edge, a car beside each.
         this.createSlots();
         this._buildCars();
+        if (!this.lanes) this.lanes = this._levelLanes(this.level);
+        this._buildVillains(false);
 
         // The merge half.
         this.createGrid();
@@ -723,6 +737,10 @@ class GameScene extends Phaser.Scene {
             t: Date.now(),
             coins: this.coins,
             distance: this.distance,
+            // A LEVEL TURN IN PROGRESS SAVES AS THE NEXT LEVEL, fresh.
+            level: this._levelTurning ? this.level + 1 : this.level,
+            lanes: this._levelTurning || !this.lanes ? null
+                : this.lanes.map((l) => ({ left: l.left, caught: !!l.caught })),
             grid: this.grid.map(lvlOf),
             slots: this.chargingSlots.map((sl) => (sl ? sl.level : 0)),
             highest: this.highestBatteryLevel,
@@ -763,6 +781,15 @@ class GameScene extends Phaser.Scene {
     _applySave(sv) {
         this.coins = sv.coins;
         this.distance = sv.distance;
+        this.level = sv.level;
+        // No further from a villain than the level's table says — a save from
+        // before a table change could say otherwise.
+        if (sv.lanes) {
+            this.lanes = this._levelLanes(this.level).map((l, i) => {
+                const k = sv.lanes[i];
+                return Object.assign(l, { left: Math.min(k.left, l.total), caught: k.caught });
+            });
+        }
         this.highestBatteryLevel = sv.highest;
         this.spawnButtonLevel = sv.spawnLevel;
         this.spawnCost = sv.spawnCost;
@@ -914,6 +941,8 @@ class GameScene extends Phaser.Scene {
         if (save) this._applySave(save);
         this.createSlots();
         this._buildCars();
+        if (!this.lanes) this.lanes = this._levelLanes(this.level);
+        this._buildVillains(false);
 
         // The merge half
         this.createGrid();
@@ -1152,6 +1181,7 @@ class GameScene extends Phaser.Scene {
             C.TYRES_IN_FRONT === false ? [...tyres, body] : [body, ...tyres]);
         car.setScale(height / gy).setDepth(C.DEPTH !== undefined ? C.DEPTH : 4);
         car.tyres = tyres;
+        car.carH = height;     // ground to roof, px
         car.wheelAngle = 0;    // degrees, shared by both tyres
         car.wheelSpeed = 0;    // degrees per second, eased toward its target
         return car;
@@ -1166,13 +1196,132 @@ class GameScene extends Phaser.Scene {
         const ease = Math.min(1, (C.SPIN_EASE !== undefined ? C.SPIN_EASE : 4) * delta / 1000);
         this.cars.forEach((car, i) => {
             if (!car || !car.scene) return;
-            const want = this.chargingSlots[i] ? top : 0;
+            const want = this._laneDriving(i) ? top : 0;
             car.wheelSpeed += (want - car.wheelSpeed) * ease;
             if (!want && car.wheelSpeed < 1) car.wheelSpeed = 0;
             if (!car.wheelSpeed) return;
             car.wheelAngle = (car.wheelAngle + car.wheelSpeed * delta / 1000) % 360;
             for (const t of car.tyres) t.setAngle(car.wheelAngle);
         });
+    }
+
+    // ================================================================
+    // THE VILLAINS
+    // ================================================================
+    // A level's three chases, fresh: each lane's distance and payout from
+    // levelData.js.
+    _levelLanes(level) {
+        const d = levelDistancesFor(level), pay = levelPayoutsFor(level);
+        return d.map((v, i) => ({ total: v, left: v, payout: pay[i], caught: false }));
+    }
+
+    // Lane i's car is being driven: a piggy in its slot, and a villain still
+    // to catch.
+    _laneDriving(i) {
+        const lane = this.lanes && this.lanes[i];
+        return !!(this.chargingSlots[i] && lane && !lane.caught && !this._levelTurning);
+    }
+
+    // THE LEVEL'S VILLAINS, one per lane — the level's villain, three times —
+    // standing on the lane's road line at the right of the car area, with the
+    // distance over each car. Built from this.lanes, so a relayout rebuilds
+    // them exactly as they were (caught ones stay gone). `enter` fades the
+    // villains in, for a new level.
+    _buildVillains(enter) {
+        for (const o of [...this.villains, ...this.laneLabels]) if (o && o.scene) { this.tweens.killTweensOf(o); o.destroy(); }
+        this.villains = []; this.laneLabels = [];
+        const V  = CONFIG.VILLAIN || {}, LB = V.LABEL || {};
+        const v  = (x, d) => (x !== undefined ? x : d);
+        const L  = this.layoutConfig, A = this.villainArea;
+        if (!A || !this.lanes) return;
+        const key = villainKey(villainIndexFor(this.level));
+        const sc  = L.platformScale;
+
+        this.platforms.forEach((p, i) => {
+            const lane   = this.lanes[i];
+            const car    = this.cars[i];
+            const ground = p.slotY + p.slotSize / 2;
+            const carH   = car ? car.carH : p.slotSize;
+
+            // THE VILLAIN, feet on the road line.
+            if (this.textures.exists(key)) {
+                const h = Math.min(carH * v(V.H_FRAC, 1.25), L.slotBandH * v(V.MAX_BAND_FRAC, 0.85));
+                const img = this.add.image(0, ground, key)
+                    .setOrigin(0.5, 1).setDepth(v(V.DEPTH, 4));
+                // NEVER PAST THE AREA'S EDGES: shrunk if the free space is
+                // narrower than the villain, and pulled in from the right edge
+                // by EDGE_PAD rather than centred off it (portrait is narrow).
+                const pad = v(V.EDGE_PAD, 12) * sc;
+                const f   = img.frame;
+                const k   = Math.min(h / f.realHeight, Math.max(1, A.width - 2 * pad) / f.realWidth);
+                const w   = f.realWidth * k;
+                img.setScale(k).setX(Math.max(A.x + pad + w / 2,
+                    Math.min(A.x + A.width * v(V.X_FRAC, 0.7), A.x + A.width - pad - w / 2)));
+                img.baseScale = img.scaleX;
+                img.setVisible(!lane.caught);
+                if (enter && !lane.caught) {
+                    img.setAlpha(0).setScale(img.baseScale * 0.85);
+                    this.tweens.add({ targets: img, alpha: 1, scale: img.baseScale,
+                        duration: v(V.ENTER_MS, 400), delay: i * 90, ease: 'Back.easeOut' });
+                }
+                this.villains[i] = img;
+            }
+
+            // THE DISTANCE, over the car's roof.
+            const fs = Math.max(10, Math.round(v(LB.SIZE, 30) * sc));
+            const x  = car ? car.x : p.slotX;
+            this.laneLabels[i] = this.add.text(x, ground - carH - v(LB.GAP, 8) * sc, '', {
+                fontSize: fs + 'px', fontFamily: CONFIG.FONT_FAMILY, fontStyle: CONFIG.FONT_WEIGHT,
+                color: LB.COLOR || '#ffffff', stroke: LB.STROKE || '#2b2013',
+                strokeThickness: Math.round(v(LB.STROKE_W, 5) * sc),
+            }).setOrigin(0.5, 1).setDepth(v(V.DEPTH, 4) + 0.1);
+            this._setLaneLabel(i);
+        });
+    }
+
+    _setLaneLabel(i) {
+        const t = this.laneLabels[i], lane = this.lanes && this.lanes[i];
+        if (!t || !t.scene || !lane) return;
+        const LB = (CONFIG.VILLAIN || {}).LABEL || {};
+        t.setText(this._bigNum(Math.ceil(lane.left)) + (LB.SUFFIX !== undefined ? LB.SUFFIX : ' m'))
+            .setVisible(!lane.caught);
+    }
+
+    // CAUGHT. The villain goes (a fade for now — the kill animation comes
+    // later), its payout showers to the coin counter, and if it was the
+    // level's last, the next level follows.
+    _catchVillain(i) {
+        const V = CONFIG.VILLAIN || {};
+        const lane = this.lanes[i];
+        if (lane.caught) return;
+        lane.caught = true;
+        lane.left = 0;
+        this._setLaneLabel(i);
+
+        const img = this.villains[i];
+        const at = img && img.scene
+            ? { x: img.x, y: img.y - img.displayHeight / 2 }
+            : { x: this.villainArea.x + this.villainArea.width / 2, y: this.platforms[i].slotY };
+        if (img && img.scene) {
+            this.tweens.add({ targets: img, alpha: 0, scale: img.baseScale * 0.8,
+                duration: V.CAUGHT_MS !== undefined ? V.CAUGHT_MS : 350, ease: 'Cubic.easeIn',
+                onComplete: () => { if (img.scene) img.setVisible(false); } });
+        }
+        this.animateCoinReward(at.x, at.y, lane.payout);
+
+        if (this.lanes.every((l) => l.caught)) {
+            this._levelTurning = true;
+            this.time.delayedCall(V.NEXT_LEVEL_MS !== undefined ? V.NEXT_LEVEL_MS : 900,
+                () => this._nextLevel());
+        }
+    }
+
+    // THE NEXT LEVEL: its villain, three times, and fresh distances.
+    _nextLevel() {
+        this.level += 1;
+        this.lanes = this._levelLanes(this.level);
+        this._buildVillains(true);
+        this._levelTurning = false;
     }
 
     // A slot's figure: metres per second.
@@ -1547,8 +1696,9 @@ class GameScene extends Phaser.Scene {
     // CHARGING
     // ================================================================
     // ONE 1-SECOND TICK, and it is the whole game's heartbeat. Each slot with a
-    // pig in it covers that pig's distance, and the distance pays coins
-    // (CAR_AREA.COINS_PER_METER). Merge a better pig, cover more ground.
+    // piggy in it drives its car that piggy's distance closer to its lane's
+    // villain; at zero the villain is caught and pays out (_catchVillain).
+    // Merge a better piggy, catch them sooner.
     startCharging() {
         if (this.chargingInterval) return;
         this.chargingInterval = this.time.addEvent({
@@ -1558,19 +1708,19 @@ class GameScene extends Phaser.Scene {
 
     chargeCycle() {
         // HELD WHILE A RELAYOUT WAITS, so everything can come to rest — see
-        // _pollOrientation. A second or so of driving, never lost work.
-        if (this._relayoutPending) return;
-        let gained = 0;
+        // _pollOrientation. A second or so of driving, never lost work. Held
+        // too between levels: there is nobody to chase.
+        if (this._relayoutPending || this._levelTurning || !this.lanes) return;
         for (let i = 0; i < 3; i++) {
             const slot = this.chargingSlots[i];
-            if (!slot) continue;
-            gained += slot.distPerSec;
+            if (!slot || !this._laneDriving(i)) continue;
+            // THE PIGGY'S M/S OFF ITS LANE'S DISTANCE — its damage, in effect.
+            const lane = this.lanes[i];
+            this.distance += Math.min(slot.distPerSec, lane.left);
+            lane.left = Math.max(0, lane.left - slot.distPerSec);
+            this._setLaneLabel(i);
+            if (lane.left <= 0) this._catchVillain(i);
         }
-        if (!gained) return;
-        this.distance += gained;
-        const CA = CONFIG.CAR_AREA || {};
-        this.coins += Math.round(gained * (CA.COINS_PER_METER !== undefined ? CA.COINS_PER_METER : 1));
-        this.updateCoinDisplay();
     }
 
     // The distance the slots cover per second — the sum of the three.
@@ -1613,7 +1763,7 @@ class GameScene extends Phaser.Scene {
             // slot; picked up, it lets go and the wheel drifts back to centre.
             const st = bd.steer;
             const slot = this.chargingSlots[bd.slotIndex];
-            const driving = slot && slot.batteryData === bd;
+            const driving = slot && slot.batteryData === bd && this._laneDriving(bd.slotIndex);
             const D = drivers[bd.slotIndex % Math.max(1, drivers.length)] || {};
             if (driving) {
                 st.hold -= dt;
@@ -3149,7 +3299,7 @@ function pokiRewardedBreak() {
 // ── The save, as stored ─────────────────────────────────────────────────────
 // Bump SAVE_VERSION if the shape below changes incompatibly: an older save is
 // then ignored (a fresh start) rather than misread.
-const SAVE_VERSION = 2;   // 2: the car area's distance in place of the farm's plots
+const SAVE_VERSION = 3;   // 3: the level and each lane's chase
 function saveKey() { return ((typeof CONFIG !== 'undefined' && CONFIG.SAVE) || {}).KEY || 'mergeDriver.save'; }
 
 // The stored run, checked and tidied — or null for a fresh start: none
@@ -3172,6 +3322,13 @@ function readSave() {
         const sv = {
             coins: int(d.coins, 0),
             distance: Number.isFinite(d.distance) ? Math.max(0, d.distance) : 0,
+            level: int(d.level, 1) || 1,
+            lanes: Array.isArray(d.lanes)
+                ? [0, 1, 2].map((i) => {
+                    const l = d.lanes[i] || {};
+                    return { left: Number.isFinite(l.left) ? Math.max(0, l.left) : 0, caught: !!l.caught };
+                })
+                : null,
             highest: int(d.highest, 1),
             spawnLevel: int(d.spawnLevel, 1),
             spawnCost: int(d.spawnCost, 0),
@@ -3182,6 +3339,8 @@ function readSave() {
             slots: [0, 1, 2].map((i) => int(d.slots && d.slots[i], 0) || 0),
         };
         if ([sv.coins, sv.highest, sv.spawnLevel, sv.spawnCost].some((v) => v === null)) return null;
+        // EVERY VILLAIN CAUGHT is a level that was about to turn: resume on the next.
+        if (sv.lanes && sv.lanes.every((l) => l.caught)) { sv.level += 1; sv.lanes = null; }
         return sv;
     } catch (e) {
         return null;

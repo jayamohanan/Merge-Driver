@@ -24,28 +24,33 @@ OUT=build
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# THE ITEM ART IS graphics/piggy and graphics/st_wheel. graphics/item (the old
-# baked-together items) and graphics/crop are no longer loaded, so they are left
-# out. Anchored with a leading / so each means that one folder.
-rsync -a \
-  --exclude '/graphics/item' \
-  --exclude '/graphics/crop' \
-  --exclude '.git' \
-  --exclude '.github' \
-  --exclude '.gitignore' \
-  --exclude '.claude' \
-  --exclude '.DS_Store' \
-  --exclude '._*' \
-  --exclude 'build' \
-  --exclude 'build.sh' \
-  --exclude 'build.command' \
-  --exclude 'dev' \
-  --exclude 'tools' \
-  --exclude 'style' \
-  --exclude '*.md' \
-  --exclude 'sounds' \
-  --exclude 'untitled folder' \
-  ./ "$OUT/"
+# THE COPY, IN NODE — not rsync. Cloudflare Pages' build machine has no rsync
+# (the build died there with "rsync: not found"), and Node is already needed
+# below, so this runs the same everywhere.
+#
+# What is LEFT OUT:
+#   NAMES   anywhere in the tree — repo and tooling folders, notes, Finder litter
+#   PATHS   from the project root — graphics/item (the old baked-together
+#           items) and graphics/crop are no longer loaded; the item art is
+#           graphics/piggy and graphics/st_wheel now
+node - "$OUT" <<'EOF'
+const fs = require('fs'), path = require('path');
+const OUT = process.argv[2];
+const NAMES = new Set(['.git', '.github', '.gitignore', '.claude', '.DS_Store', 'build', 'build.sh',
+                       'build.command', 'dev', 'tools', 'style', 'sounds', 'untitled folder']);
+const PATHS = new Set(['graphics/item', 'graphics/crop']);
+const skip = (rel, name) => NAMES.has(name) || PATHS.has(rel) || name.startsWith('._') || name.endsWith('.md');
+let n = 0;
+(function copy(rel) {
+  for (const e of fs.readdirSync(rel || '.', { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (skip(r, e.name)) continue;
+    if (e.isDirectory()) { fs.mkdirSync(path.join(OUT, r), { recursive: true }); copy(r); }
+    else if (e.isFile()) { fs.copyFileSync(r, path.join(OUT, r)); n++; }
+  }
+})('');
+console.log(`copied ${n} files`);
+EOF
 
 # ── START THE OPENING ART WITH THE PAGE ────────────────────────────────────────
 # Without this, loading runs in rounds, each waiting on the server: the page,
@@ -69,7 +74,7 @@ node - "$OUT" <<'EOF'
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const OUT = process.argv[2];
 const ctx = vm.createContext({ console });
-for (const f of ['batteryChargeData.js', 'config.js', 'assets.js']) {
+for (const f of ['batteryChargeData.js', 'levelData.js', 'config.js', 'assets.js']) {
   vm.runInContext(fs.readFileSync(path.join(OUT, f), 'utf8'), ctx, { filename: f });
 }
 const pick = vm.runInContext(`sharedAssets().map((a) => ({ url: a.url, json: a.type === 'json' }))`, ctx);
@@ -104,7 +109,7 @@ EOF
 # puts its whole program on a few lines, so an error's line number points nowhere
 # useful.
 if [ "$1" != "--no-minify" ]; then
-  for f in game.js config.js assets.js batteryChargeData.js; do
+  for f in game.js config.js assets.js batteryChargeData.js levelData.js; do
     [ -f "$OUT/$f" ] || continue
     npx --yes esbuild@0.24.0 "$OUT/$f" \
       --minify-whitespace --minify-syntax --legal-comments=none \
@@ -113,11 +118,11 @@ if [ "$1" != "--no-minify" ]; then
   done
 fi
 
-# ── ONE SCRIPT INSTEAD OF FOUR ─────────────────────────────────────────────────
-# batteryChargeData.js, config.js, assets.js and game.js are four
+# ── ONE SCRIPT INSTEAD OF FIVE ─────────────────────────────────────────────────
+# batteryChargeData.js, levelData.js, config.js, assets.js and game.js are five
 # requests before the game can even start, and each waits on the server. In the
 # BUILD COPY they are joined into one game.js, in the order index.html loads
-# them, and the build's index.html gets one tag in place of four. The project's
+# them, and the build's index.html gets one tag in place of five. The project's
 # files and its index.html are never touched.
 #
 # Joined as a PLAIN script, not a module. The project's index.html still loads
@@ -136,7 +141,7 @@ fi
 node - "$OUT" <<'EOF'
 const fs = require('fs'), path = require('path');
 const OUT = process.argv[2];
-const parts = ['batteryChargeData.js', 'config.js', 'assets.js', 'game.js'];
+const parts = ['batteryChargeData.js', 'levelData.js', 'config.js', 'assets.js', 'game.js'];
 const htmlPath = path.join(OUT, 'index.html');
 let page = fs.readFileSync(htmlPath, 'utf8');
 // Read everything first, then write: game.js is both an input and the output.

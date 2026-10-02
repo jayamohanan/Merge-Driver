@@ -60,6 +60,9 @@ function sharedAssets() {
     // (see CONFIG.CAR / _makeCar).
     A.image('car_body', 'graphics/car/body.png');
     A.image('car_tyre', 'graphics/car/tyre.png');
+    // The villains — all three, they are small and one turns up every level.
+    const V = CONFIG.VILLAIN || {};
+    (V.FILES || []).forEach((f, i) => A.image(villainKey(i + 1), (V.DIR || 'graphics/villain/') + f));
     return A.list();
 }
 
@@ -67,3 +70,10 @@ function sharedAssets() {
 // `battery<iconLvl>`, so none of these can collide with it.
 function itemPiggyKey(iconLvl) { return `item_piggy_${itemPiggyIndex(iconLvl)}`; }
 function itemWheelKey(iconLvl) { return `item_wheel_${iconLvl}`; }
+
+// Which villain a level brings — FILES, looping — and the key it loads under.
+function villainIndexFor(level) {
+    const n = ((CONFIG.VILLAIN || {}).FILES || []).length || 1;
+    return ((Math.max(1, Math.floor(level)) - 1) % n) + 1;
+}
+function villainKey(i) { return `villain_${i}`; }

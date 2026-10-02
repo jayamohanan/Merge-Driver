@@ -104,7 +104,7 @@ var CONFIG = {
     BATTERY_START_LEVEL: 1,
     // Coins a new run starts with. Default 2500; raise it to debug later levels.
     START_COINS: 2500,
-    // THE ECONOMY. Coins come from distance — see CAR_AREA.COINS_PER_METER.
+    // THE ECONOMY. Coins come from catching villains — see levelData.js.
     ECONOMY: {
         SPAWN_COST_PER_LEVEL: 25,    // a spawn costs this × the spawn level
     },
@@ -597,6 +597,41 @@ var CONFIG = {
         },
     },
 
+    // ── THE VILLAINS ─────────────────────────────────────────────────────────
+    // One per lane, three to a level, all the same villain: level 1 wears
+    // FILES[0], level 2 FILES[1], level 3 FILES[2], level 4 FILES[0] again, and
+    // so on. They stand still at the right of the car area, on their lane's
+    // road line. Over each CAR is how far it still is from its villain
+    // (levelData.js); the lane's piggy takes its m/s off that every tick, and
+    // at zero the villain is caught — gone, and its payout showered to the
+    // coin counter. All three caught: the next level.
+    VILLAIN: {
+        DIR:   'graphics/villain/',
+        FILES: ['villain_01.webp', 'villain_02.webp', 'villian_03.webp'],
+        // Height, ground to head, as a multiple of the CAR's height — capped
+        // at MAX_BAND_FRAC of the lane's band so it never reaches the lane above.
+        H_FRAC:        1.25,
+        MAX_BAND_FRAC: 0.85,
+        X_FRAC:        0.7,      // its middle, across the free space right of the cars
+        EDGE_PAD:      12,       // px @ design kept clear of the screen's right edge
+        DEPTH:         4,
+        PAYOUT_MULT:   1,        // coins = its distance × this (levels 1–2 are flat)
+
+        CAUGHT_MS:     350,      // how long a caught villain takes to fade out
+        NEXT_LEVEL_MS: 900,      // pause after the last catch before the next level
+        ENTER_MS:      400,      // how long the next level's villains take to appear
+
+        // THE DISTANCE OVER EACH CAR.
+        LABEL: {
+            SIZE:     30,        // px @ design
+            GAP:      8,         // px @ design between the car's roof and the figure
+            COLOR:    '#ffffff',
+            STROKE:   '#2b2013',
+            STROKE_W: 5,
+            SUFFIX:   ' m',
+        },
+    },
+
     // ── THE PIGGY STEERS ─────────────────────────────────────────────────────
     // A piggy in a slot is drawn as its piggy with its steering wheel as a
     // separate sprite on top, and the wheel turns the way a driver's does:
@@ -628,12 +663,10 @@ var CONFIG = {
     // THE CAR AREA
     // ===================================================================
     // The half beside the merge grid: the three slots stacked down its LEFT
-    // edge, and the rest of it left empty for the car. Every charge tick each
-    // pig in a slot covers its own distance (CHARGE_PER_SECOND_BY_LEVEL, read
-    // as metres per second), and the coins come off that distance.
+    // edge, a car beside each, and the villains to the right. Every charge
+    // tick each piggy in a slot drives its car its own distance
+    // (CHARGE_PER_SECOND_BY_LEVEL, metres per second) closer to its villain.
     CAR_AREA: {
-        COINS_PER_METER: 1,      // coins earned per metre covered
-
         // The slot column, down the area's left edge (px @ design).
         SLOT_COLUMN_PAD: 28,     // area's left edge → slot's left edge
         SLOT_COLUMN_GAP: 28,     // slot's right edge → where the empty car
