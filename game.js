@@ -1230,7 +1230,10 @@ class GameScene extends Phaser.Scene {
         const C    = CONFIG.CAR || {};
         const top  = C.SPIN_DEG_PER_SEC !== undefined ? C.SPIN_DEG_PER_SEC : 540;
         const ease = Math.min(1, (C.SPIN_EASE !== undefined ? C.SPIN_EASE : 4) * delta / 1000);
-        this.cars.forEach((car, i) => {
+        // The getaway cars too: they flee exactly as fast as they are chased.
+        const all = [...this.cars.map((c, i) => [c, i]),
+                     ...this.villains.map((en, i) => [en && en.isCar ? en : null, i])];
+        all.forEach(([car, i]) => {
             if (!car || !car.scene) return;
             const want = this._laneDriving(i) ? top : 0;
             car.wheelSpeed += (want - car.wheelSpeed) * ease;
@@ -1288,8 +1291,17 @@ class GameScene extends Phaser.Scene {
             // leaves the villain as it was.
             const carH   = car ? (car.fullH || car.carH) : p.slotSize;
 
+            // THE GETAWAY CAR, on the road line where the villain would stand.
+            if (this._chaseCars()) {
+                const en = this._makeGetawayCar(i, ground, key);
+                if (enter && en) {
+                    en.setAlpha(0).setScale(en.baseScale * 0.85);
+                    this.tweens.add({ targets: en, alpha: 1, scale: en.baseScale,
+                        duration: v(V.ENTER_MS, 400), delay: i * 90, ease: 'Back.easeOut' });
+                }
+                this.villains[i] = en;
             // THE VILLAIN, feet on the road line.
-            if (this.textures.exists(key)) {
+            } else if (this.textures.exists(key)) {
                 const h = Math.min(carH * v(V.H_FRAC, 1.25), L.slotBandH * v(V.MAX_BAND_FRAC, 0.85));
                 const img = this.add.image(0, ground, key)
                     .setOrigin(0.5, 1).setDepth(v(V.DEPTH, 4));
@@ -1320,6 +1332,23 @@ class GameScene extends Phaser.Scene {
                 const stopAt = vl ? vl.x - vl.displayWidth / 2 : A.x + A.width;
                 const reach = Math.max(car.homeX, stopAt - v(V.STOP_GAP, 10) * sc - car.carW / 2);
                 car.endX = car.homeX + (reach - car.homeX) * Math.max(0, Math.min(1, v(V.DRIVE_SHARE, 0.5)));
+                // A GETAWAY CAR is driven right up to: at the last metre the
+                // piggy car's front bumper is at CHASE_TARGET along it — so
+                // the catch only has the last few px of overtaking left to do.
+                //
+                // THEY MEET IN THE MIDDLE: the getaway car drifts back as the
+                // piggy car comes on (the gap still only closes), so the two
+                // come level around MEET_AT of the car area, not at its end.
+                if (vl && vl.isCar) {
+                    const K = V.CAR || {};
+                    const tgt = v(K.CHASE_TARGET, 0.85);
+                    const k = -vl.carW / 2 + tgt * vl.carW - car.carW / 2;   // piggy centre − getaway centre
+                    const CA = this.carArea;
+                    let e1 = Math.min(vl.homeX, CA.x + CA.width * v(K.MEET_AT, 0.55) - k / 2);
+                    if (e1 + k < car.homeX) e1 = car.homeX - k;
+                    car.endX = e1 + k;
+                    vl.endX = e1;
+                }
                 // A NEW LEVEL rolls the car back to the start; otherwise it is
                 // put straight where its lane's progress says.
                 if (enter) {
@@ -1330,6 +1359,10 @@ class GameScene extends Phaser.Scene {
                 } else {
                     this._placeCar(i, false);
                 }
+                // The getaway car where its lane's progress puts it — or
+                // where it was blocked.
+                const en = this.villains[i];
+                if (en && en.isCar && !enter) { en.x = en.targetX = this._enemyXFor(i); en.driveV = 0; }
             }
 
             // THE DISTANCE, on the gap line — placed every frame (_drawGapLines).
@@ -1420,8 +1453,11 @@ class GameScene extends Phaser.Scene {
 
             // WHERE THE ROAD GOES QUIET: from just past the bumper, flat and
             // bare before the villain.
+            // A GETAWAY CAR drives this same road, so none of that: the
+            // road runs whole, marks and bumps, under both cars.
+            const chase = !!(vl && vl.isCar);
             const front = car ? car.x + car.carW / 2 : x0;
-            const vLeft = vl && vl.visible ? vl.x - vl.displayWidth / 2 : xEnd;
+            const vLeft = vl && vl.visible && !chase ? vl.x - vl.displayWidth / 2 : xEnd;
 
             // THE BREAK BEFORE THE VILLAIN: open while it is still to be
             // reached, eased shut once caught (and open again for the next).
@@ -1429,19 +1465,19 @@ class GameScene extends Phaser.Scene {
             // caught one is gone.
             const GP = R.GAP || {};
             const lane = this.lanes && this.lanes[i];
-            if (vl && vl.visible) this.roadGapAt[i] = vLeft - v(GP.VILLAIN_PAD, 14) * sc;
-            const want = lane && !lane.caught ? 1 : 0;
+            if (vl && vl.visible && !chase) this.roadGapAt[i] = vLeft - v(GP.VILLAIN_PAD, 14) * sc;
+            const want = lane && !lane.caught && !chase ? 1 : 0;
             const rate = delta / Math.max(1, v(GP.CLOSE_MS, 250));
             this.roadGapOpen[i] = want > this.roadGapOpen[i]
                 ? Math.min(want, this.roadGapOpen[i] + rate)
                 : Math.max(want, this.roadGapOpen[i] - rate);
             const gapEnd   = this.roadGapAt[i] !== null ? this.roadGapAt[i] : xEnd;
-            const gapStart = gapEnd - v(GP.W, 26) * sc * this.roadGapOpen[i];
+            const gapStart = chase ? gapEnd : gapEnd - v(GP.W, 26) * sc * this.roadGapOpen[i];
 
             const hardEnd = Math.min(vLeft - v(R.CLEAR, 18) * sc, gapStart);
             const f0 = Math.min(front + v(R.FADE_AHEAD, 20) * sc, hardEnd);
             const f1 = Math.min(f0 + v(R.FADE_LEN, 140) * sc, hardEnd);
-            const fade = (x) => x <= f0 ? 1 : x >= f1 ? 0 : 1 - (x - f0) / Math.max(1, f1 - f0);
+            const fade = (x) => chase || x <= f0 ? 1 : x >= f1 ? 0 : 1 - (x - f0) / Math.max(1, f1 - f0);
 
             // THE ROAD'S HEIGHT at a screen x (px, up is +): the bumps, each a
             // smooth rise, slid back with the marks and flattened by the fade.
@@ -1492,6 +1528,7 @@ class GameScene extends Phaser.Scene {
             }
 
             if (car && car.scene) this._suspend(car, heightAt, k, delta);
+            if (chase && vl.scene) this._suspend(vl, heightAt, k, delta);
         });
     }
 
@@ -1534,6 +1571,11 @@ class GameScene extends Phaser.Scene {
         const base = (car.tyreDX[ends.length - 1] - car.tyreDX[0]) * scale || 1;
         car.bodyImg.y = car.bodyBaseY - ((r.e + f.e) / 2) / scale;
         car.bodyImg.rotation = -Math.atan2(f.e - r.e, base);
+        // A getaway car's driver rides with the body.
+        if (car.face) {
+            car.face.y = car.faceBaseY + (car.bodyImg.y - car.bodyBaseY);
+            car.face.rotation = car.bodyImg.rotation;
+        }
     }
 
     // WHERE LANE i's CAR SHOULD BE: from its home spot to its end, by the share
@@ -1541,6 +1583,8 @@ class GameScene extends Phaser.Scene {
     _carXFor(i) {
         const car = this.cars[i], lane = this.lanes && this.lanes[i];
         if (!car) return 0;
+        // CAUGHT IN A CHASE: pulled ahead of the getaway car (_blockGetaway).
+        if (lane && lane.caught && this._chaseCars()) return this._blockedCarX(i);
         const done = lane && lane.total > 0 ? 1 - lane.left / lane.total : 0;
         return car.homeX + (car.endX - car.homeX) * Math.max(0, Math.min(1, done));
     }
@@ -1548,18 +1592,37 @@ class GameScene extends Phaser.Scene {
     // Send lane i's car to where its distance says: rolled there over DRIVE_MS
     // (a tick), or put there at once (a rebuild).
     _placeCar(i, roll) {
+        const ms = (CONFIG.VILLAIN || {}).DRIVE_MS;
+        const secs = (ms !== undefined ? ms : 950) / 1000;
+        // The getaway car with it: drifting back as the gap closes.
+        const en = this.villains[i];
+        if (en && en.isCar && en.scene && !(this.lanes && this.lanes[i] && this.lanes[i].caught)) {
+            en.targetX = this._enemyXFor(i);
+            if (!roll) { en.x = en.targetX; en.driveV = 0; }
+            else en.driveV = (en.targetX - en.x) / secs;
+        }
         const car = this.cars[i];
         if (!car || !car.scene) return;
         car.targetX = this._carXFor(i);
         if (!roll) { car.x = car.targetX; car.driveV = 0; return; }
-        const ms = (CONFIG.VILLAIN || {}).DRIVE_MS;
-        car.driveV = (car.targetX - car.x) / ((ms !== undefined ? ms : 950) / 1000);
+        car.driveV = (car.targetX - car.x) / secs;
+    }
+
+    // WHERE LANE i's GETAWAY CAR SHOULD BE: from its home back to where the
+    // two meet, by the share of the distance covered — or, caught, blocked.
+    _enemyXFor(i) {
+        const en = this.villains[i], lane = this.lanes && this.lanes[i];
+        if (!en || !en.isCar) return en ? en.x : 0;
+        if (lane && lane.caught) return this._blockedX(i);
+        const done = lane && lane.total > 0 ? 1 - lane.left / lane.total : 0;
+        const end = en.endX !== undefined ? en.endX : en.homeX;
+        return en.homeX + (end - en.homeX) * Math.max(0, Math.min(1, done));
     }
 
     // Each frame: every rolling car a step nearer its target, never past it.
     _driveCars(delta) {
         const dt = delta / 1000;
-        for (const car of this.cars) {
+        for (const car of [...this.cars, ...this.villains]) {
             if (!car || !car.scene || !car.driveV) continue;
             const step = car.driveV * dt, gap = car.targetX - car.x;
             if (Math.abs(step) >= Math.abs(gap)) { car.x = car.targetX; car.driveV = 0; }
@@ -1645,14 +1708,18 @@ class GameScene extends Phaser.Scene {
         const at = img && img.scene
             ? { x: img.x, y: img.y - img.displayHeight / 2 }
             : { x: this.villainArea.x + this.villainArea.width / 2, y: this.platforms[i].slotY };
-        if (img && img.scene) {
+        // A GETAWAY CAR is cut off and blocked; a villain on foot just goes.
+        let blockMs = 0;
+        if (img && img.scene && img.isCar) {
+            blockMs = this._blockGetaway(i);
+        } else if (img && img.scene) {
             this.tweens.add({ targets: img, alpha: 0, scale: img.baseScale * 0.8,
                 duration: V.CAUGHT_MS !== undefined ? V.CAUGHT_MS : 350, ease: 'Cubic.easeIn',
                 onComplete: () => { if (img.scene) img.setVisible(false); } });
         }
         // THE BOUNTY: from the CAUGHT card, once it is stamped — or straight
         // from the villain with no cards.
-        const seq = this._showCaughtCard(i, (x, y) => this.animateCoinReward(x, y, lane.payout));
+        const seq = this._showCaughtCard(i, (x, y) => this.animateCoinReward(x, y, lane.payout), blockMs);
         if (seq === null) this.animateCoinReward(at.x, at.y, lane.payout);
 
         if (this.lanes.every((l) => l.caught)) {
@@ -1677,9 +1744,21 @@ class GameScene extends Phaser.Scene {
     // Where lane i's card goes: over its villain, centred on the lane's band,
     // kept inside the villain area. Its badge (the caught marker) stands on
     // the road line where the villain stood.
-    _wantedSpot(i) {
+    // A CAUGHT getaway car's card goes on the open road either side of the
+    // stopped cars instead — whichever side has more of it.
+    _wantedSpot(i, caught) {
         const W = CONFIG.WANTED || {}, v = (x, d) => (x !== undefined ? x : d);
-        const L = this.layoutConfig, A = this.villainArea, p = this.platforms[i];
+        const L = this.layoutConfig, p = this.platforms[i];
+        const vl = this.villains[i];
+        let A = this.villainArea;
+        if (caught && vl && vl.isCar && this.carArea && this.cars[i]) {
+            const CA = this.carArea, car = this.cars[i];
+            const behind = this._blockedX(i) - vl.carW / 2 - CA.x;
+            const aheadX = this._blockedCarX(i) + car.carW / 2;
+            const ahead  = CA.x + CA.width - aheadX;
+            A = behind >= ahead ? { x: CA.x, width: Math.max(0, behind) }
+                                : { x: aheadX, width: Math.max(0, ahead) };
+        }
         if (!A || !p) return null;
         const pad = v(W.EDGE_PAD, 8) * L.platformScale;
         const asp = v(W.ASPECT, 0.78);
@@ -1687,8 +1766,9 @@ class GameScene extends Phaser.Scene {
         let w = h * asp;
         const room = Math.max(10, A.width - 2 * pad);
         if (w > room) { w = room; h = w / asp; }
-        const vl = this.villains[i];
-        const cx = vl ? vl.x : A.x + A.width / 2;
+        // Where the villain stands — a getaway car's home, wherever it is now.
+        const cx = A !== this.villainArea ? A.x + A.width / 2
+                 : vl ? (vl.homeX !== undefined ? vl.homeX : vl.x) : A.x + A.width / 2;
         const x  = Math.max(A.x + pad + w / 2, Math.min(cx, A.x + A.width - pad - w / 2));
         const ground = p.slotY + p.slotSize / 2;
         const bs = v((W.CATCH || {}).BADGE_SCALE, 0.5);
@@ -1700,7 +1780,7 @@ class GameScene extends Phaser.Scene {
     // card.stamp, so they can be slammed on separately.
     _makeWantedCard(i, caught) {
         const W = CONFIG.WANTED || {}, C = W.CATCH || {};
-        const spot = this._wantedSpot(i), lane = this.lanes && this.lanes[i];
+        const spot = this._wantedSpot(i, caught), lane = this.lanes && this.lanes[i];
         if (!spot || !lane) return null;
         const { w, h } = spot;
         const font = (px, color, extra) => Object.assign({
@@ -1745,6 +1825,8 @@ class GameScene extends Phaser.Scene {
         if (coin) { coin.setX(-tw / 2 + coin.displayWidth / 2); card.add(coin); }
         amt.setX(-tw / 2 + (coin ? cs + gap : 0));
         card.add(amt);
+        card.reward = coin ? [coin, amt] : [amt];   // the bounty line, gone once paid
+        card.rewardY = fy;
 
         if (caught) {
             const stamp = this.add.container(0, 0);
@@ -1792,6 +1874,7 @@ class GameScene extends Phaser.Scene {
         this.wantedCards = []; this.caughtCards = [];
         this._endWantedTimers();
         this._briefing = false;
+        for (const en of this.villains) if (en && en.isCar && en.face) en.face.setVisible(true);
     }
 
     _endWantedTimers() {
@@ -1815,6 +1898,9 @@ class GameScene extends Phaser.Scene {
         this.lanes.forEach((lane, i) => {
             const card = this._makeWantedCard(i, false);
             if (!card) return;
+            // The getaway car waits empty until the card lands in it.
+            const en = this.villains[i];
+            if (en && en.isCar && en.face) en.face.setVisible(false);
             card.setScale(0).setAngle(Phaser.Math.Between(-6, 6));
             this.tweens.add({ targets: card, scale: 1, angle: 0, duration: pop,
                 delay: start + i * stag, ease: 'Back.easeOut' });
@@ -1840,17 +1926,25 @@ class GameScene extends Phaser.Scene {
         cards.forEach((card, i) => {
             if (!card || !card.scene) return;
             this.tweens.killTweensOf(card);
+            // INTO THE VILLAIN — a getaway car's window: it has jumped in.
             const vl = this.villains[i];
-            const ty = vl ? vl.y - vl.displayHeight / 2 : card.y;
-            this.tweens.add({ targets: card, x: vl ? vl.x : card.x, y: ty, scale: 0.1, alpha: 0,
-                duration: out, ease: 'Cubic.easeIn', onComplete: () => card.destroy() });
+            const to = vl && vl.isCar ? this._faceAt(vl)
+                     : vl ? { x: vl.x, y: vl.y - vl.displayHeight / 2 } : { x: card.x, y: card.y };
+            this.tweens.add({ targets: card, x: to.x, y: to.y, scale: 0.1, alpha: 0,
+                duration: out, ease: 'Cubic.easeIn', onComplete: () => {
+                    card.destroy();
+                    if (vl && vl.isCar && vl.scene) {
+                        if (vl.face) vl.face.setVisible(true);
+                        this._getawayStart(vl);
+                    }
+                } });
         });
     }
 
     // THE CATCH: lane i's card pops up, the cuffs and stamp slam on, `pay`
     // throws the bounty from the card, and it shrinks to the lane's badge.
     // Returns how long that takes, ms — or null with the cards switched off.
-    _showCaughtCard(i, pay) {
+    _showCaughtCard(i, pay, after = 0) {
         const W = CONFIG.WANTED || {}, C = W.CATCH || {}, v = (x, d) => (x !== undefined ? x : d);
         if (W.ENABLED === false) return null;
         const card = this._makeWantedCard(i, true);
@@ -1859,7 +1953,7 @@ class GameScene extends Phaser.Scene {
         if (old && old.scene) old.destroy();
         this.caughtCards[i] = card;
 
-        const d = v(C.DELAY_MS, 200), pop = v(C.POP_MS, 260), stampMs = v(C.STAMP_MS, 220);
+        const d = after + v(C.DELAY_MS, 200), pop = v(C.POP_MS, 260), stampMs = v(C.STAMP_MS, 220);
         const hold = v(C.HOLD_MS, 700), shrink = v(C.SHRINK_MS, 300);
         const spot = card.spot;
         card.setScale(0);
@@ -1869,7 +1963,13 @@ class GameScene extends Phaser.Scene {
             targets: card.stamp, scale: 1, alpha: 1, duration: stampMs, delay: d + pop, ease: 'Cubic.easeIn',
             onComplete: () => {
                 if (C.SHAKE) this.cameras.main.shake(v(C.SHAKE_MS, 120), C.SHAKE);
-                pay(card.x, card.y);
+                // THE BOUNTY IS PAID: the coins fly from the card's bounty
+                // line, and the line goes.
+                pay(card.x, card.y + card.rewardY * card.scaleY);
+                for (const o of card.reward) {
+                    this.tweens.add({ targets: o, alpha: 0, scaleX: o.scaleX * 0.6, scaleY: o.scaleY * 0.6,
+                        duration: 260, delay: 120, ease: 'Cubic.easeIn' });
+                }
             },
         });
         this.tweens.add({ targets: card, scale: spot.badgeScale, y: spot.badgeY,
@@ -1883,7 +1983,171 @@ class GameScene extends Phaser.Scene {
         const card = this._makeWantedCard(i, true);
         if (!card) return;
         card.setScale(card.spot.badgeScale).setY(card.spot.badgeY);
+        for (const o of card.reward || []) o.setVisible(false);   // already paid
         this.caughtCards[i] = card;
+    }
+
+    // ================================================================
+    // THE GETAWAY CARS — see CONFIG.VILLAIN.CAR
+    // ================================================================
+    _chaseCars() {
+        const K = (CONFIG.VILLAIN || {}).CAR;
+        return !!(K && K.ENABLED !== false && this.textures.exists('car_body'));
+    }
+
+    // LANE i's GETAWAY CAR: the piggy car's body, tinted, the villain's head
+    // in the driver's window — standing on the road at `ground` where the
+    // villain would, behind the piggy car. Sized like a container image of
+    // the car (setSize), so displayWidth / displayHeight read as they do for
+    // a villain picture, and the code that measures villains measures it.
+    _makeGetawayCar(i, ground, key) {
+        const V = CONFIG.VILLAIN || {}, K = V.CAR || {}, F = K.FACE || {}, C = CONFIG.CAR || {};
+        const v = (x, d) => (x !== undefined ? x : d);
+        const A = this.villainArea, car = this.cars[i], p = this.platforms[i];
+        const sc = this.layoutConfig.platformScale;
+        const h = (car ? car.carH : p.slotSize) * v(K.SCALE, 1);
+        const en = this._makeCar(0, ground, h).setDepth(v(K.DEPTH, 3.9));
+        const bw = v(C.BODY_W, 254), gy = this._carGround();
+        en.setSize(bw, gy);
+        en.isCar = true;
+        if (K.TINT) en.bodyImg.setTint(hexColor(K.TINT));
+
+        // THE DRIVER: the top of the villain's picture — its head — in the window.
+        if (this.textures.exists(key)) {
+            const face = this.add.image(-bw / 2 + v(F.X, 126), -gy + v(F.Y, 28), key);
+            const fw = face.frame.realWidth, fh = face.frame.realHeight;
+            const ch = fh * v(F.HEAD_FRAC, 0.55);
+            face.setCrop(0, 0, fw, ch).setOrigin(0.5, ch / 2 / fh).setScale(v(F.H, 40) / ch);
+            en.addAt(face, 1);
+            en.face = face;
+            en.faceBaseY = face.y;
+        }
+
+        // WHERE THE VILLAIN WOULD STAND; past the area's right edge rather
+        // than over the piggy car if the area is too narrow — just in sight.
+        const pad = v(V.EDGE_PAD, 12) * sc, w = en.carW;
+        en.x = en.homeX = en.endX = en.targetX = Math.max(A.x + pad + w / 2,
+            Math.min(A.x + A.width * v(V.X_FRAC, 0.7), A.x + A.width - pad - w / 2));
+        en.baseScale = en.scaleX;
+        return en;
+    }
+
+    // Where a getaway car's driver's head is, on screen.
+    _faceAt(en) {
+        const f = en.face;
+        return f ? { x: en.x + f.x * en.scaleX, y: en.y + f.y * en.scaleY }
+                 : { x: en.x, y: en.y - en.displayHeight / 2 };
+    }
+
+    // The villain has jumped in: the car hops on its springs and kicks up dust.
+    _getawayStart(en) {
+        const sc = this.layoutConfig.platformScale;
+        this.tweens.add({ targets: en, y: en.y - 5 * sc, duration: 110, yoyo: true, ease: 'Sine.easeOut' });
+        this._dust(en, 0, 3);
+    }
+
+    // WHERE THE PIGGY CAR STOPS, CAUGHT: its front bumper SURGE px past
+    // where the getaway car's was — the piggy car has done the driving and
+    // overtaken; the getaway car has only given way.
+    _blockedCarX(i) {
+        const B = ((CONFIG.VILLAIN || {}).CAR || {}).BLOCK || {};
+        const car = this.cars[i], en = this.villains[i];
+        if (!car) return 0;
+        if (!en || !en.isCar) return car.endX;
+        // SURGE past where the chase left it — level with the getaway car —
+        // but never past the screen's edge.
+        const sc = this.layoutConfig.platformScale;
+        const surge = (B.SURGE !== undefined ? B.SURGE : 22) * sc;
+        const A = this.villainArea, pad = ((CONFIG.VILLAIN || {}).EDGE_PAD || 12) * sc;
+        return Math.min(car.endX + surge, A.x + A.width - pad / 2 - car.carW / 2);
+    }
+
+    // WHERE A BLOCKED GETAWAY CAR ENDS UP: OVERLAP of it hidden behind the
+    // piggy car at its caught spot. Never off the car area's left edge.
+    _blockedX(i) {
+        const B = ((CONFIG.VILLAIN || {}).CAR || {}).BLOCK || {};
+        const car = this.cars[i], en = this.villains[i];
+        if (!car || !en) return en ? en.x : 0;
+        const ov = B.OVERLAP !== undefined ? B.OVERLAP : 0.55;
+        const x  = this._blockedCarX(i) - car.carW / 2 + (ov - 0.5) * en.carW;
+        return Math.max(this.carArea.x + en.carW / 2, x);
+    }
+
+    // CAUGHT IN A CHASE: the piggy car sprints, closes the gap and overtakes
+    // — and only once its bumper reaches the getaway car does that one give
+    // way, braking back behind it: a jolt, skid marks, dust, a shake.
+    // Returns how long it takes, ms.
+    _blockGetaway(i) {
+        const B = ((CONFIG.VILLAIN || {}).CAR || {}).BLOCK || {};
+        const v = (x, d) => (x !== undefined ? x : d);
+        const car = this.cars[i], en = this.villains[i];
+        if (!car || !car.scene || !en || !en.scene) return 0;
+        const slide = v(B.SLIDE_MS, 700), brake = v(B.BRAKE_MS, 140);
+
+        this.tweens.killTweensOf(car);
+        car.driveV = en.driveV = 0;
+        const x0 = car.x, x1 = this._carXFor(i);
+        car.targetX = x1;
+        // EASING OUT: it carries on at chase pace and slows to its stop —
+        // no burst of speed.
+        this.tweens.add({ targets: car, x: x1, duration: slide, ease: 'Sine.easeOut' });
+        this.tweens.add({ targets: car, angle: -v(B.CUT_TILT, 4), duration: slide / 2,
+            delay: slide * 0.3, yoyo: true, ease: 'Sine.easeInOut' });
+
+        // WHEN THE BUMPERS MEET: the share of the piggy car's run at which
+        // its front reaches the getaway car's rear, turned into time through
+        // the run's easing (Sine out: x = sin(πt / 2)). Already alongside —
+        // the usual case — the getaway car brakes at once.
+        const meet = en.x - en.carW / 2 - car.carW / 2;
+        const f = x1 > x0 ? Math.max(0, Math.min(1, (meet - x0) / (x1 - x0))) : 0;
+        const t = Math.asin(f) * 2 / Math.PI;
+        const back = Math.max(160, slide * (1 - t) + brake);
+        this.tweens.add({
+            targets: en, x: this._blockedX(i), delay: slide * t,
+            duration: back, ease: 'Quad.easeOut',
+            onComplete: () => {
+                if (!en.scene) return;
+                this.tweens.add({ targets: en, angle: v(B.BRAKE_TILT, 5), duration: brake,
+                    yoyo: true, ease: 'Quad.easeOut' });
+                this._skid(en);
+                this._dust(en, -1, v(B.PUFFS, 5));
+                if (B.SHAKE) this.cameras.main.shake(v(B.SHAKE_MS, 140), B.SHAKE);
+            },
+        });
+        return slide * t + back + brake * 2 + v(B.SETTLE_MS, 260);
+    }
+
+    // SKID MARKS behind each of a car's tyres, fading.
+    _skid(en) {
+        const B = ((CONFIG.VILLAIN || {}).CAR || {}).BLOCK || {};
+        const sc = this.layoutConfig.platformScale;
+        const len = (B.SKID_LEN !== undefined ? B.SKID_LEN : 46) * sc;
+        const g = this.add.graphics().setDepth(3.85);
+        g.lineStyle(Math.max(1.5, 3 * sc), 0x4a3a2a, 0.7);
+        for (const dx of en.tyreDX) {
+            const tx = en.x + dx * en.scaleX;
+            g.lineBetween(tx - len, en.y, tx, en.y);
+        }
+        this.tweens.add({ targets: g, alpha: 0, delay: 400, duration: 900, onComplete: () => g.destroy() });
+    }
+
+    // DUST at a car's tyres, drifting back: `n` puffs, at the rear tyre
+    // (side 0) or both (side -1).
+    _dust(en, side, n) {
+        const B = ((CONFIG.VILLAIN || {}).CAR || {}).BLOCK || {};
+        const sc = this.layoutConfig.platformScale;
+        const col = hexColor(B.DUST || '#d9c3a0');
+        const at = side === 0 ? [en.tyreDX[0]] : en.tyreDX;
+        for (let k = 0; k < n; k++) {
+            const tx = en.x + at[k % at.length] * en.scaleX;
+            // A graphics, not this.add.circle: shapes are not in the custom build.
+            const c = this.add.graphics({ x: tx + Phaser.Math.Between(-6, 6) * sc,
+                                          y: en.y - Phaser.Math.Between(0, 6) * sc })
+                .fillStyle(col, 0.9).fillCircle(0, 0, Phaser.Math.Between(4, 8) * sc).setDepth(4.05);
+            this.tweens.add({ targets: c, x: c.x - Phaser.Math.Between(10, 32) * sc,
+                y: c.y - Phaser.Math.Between(6, 18) * sc, scale: 2.4, alpha: 0,
+                duration: Phaser.Math.Between(420, 620), ease: 'Cubic.easeOut', onComplete: () => c.destroy() });
+        }
     }
 
     // A slot's figure: metres per second.

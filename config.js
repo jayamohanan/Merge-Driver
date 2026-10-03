@@ -728,6 +728,60 @@ var CONFIG = {
             STROKE_W: 5,
             SUFFIX:   ' m',
         },
+
+        // THE GETAWAY CAR. Each villain flees in a car — the piggy car's own
+        // body (TINT to recolour it), with the villain's head in the driver's window — so a
+        // villain is one front-facing picture (on its wanted card and in the
+        // window) and no running frames. It stands where the villain stood,
+        // drawn BEHIND the piggy car, and rides the road with it: tyres
+        // spinning, bumps and suspension, all while the lane is driving.
+        //
+        // CAUGHT: the two are level by then (CHASE_TARGET); the piggy car
+        // eases ahead and the getaway car brakes back behind it, its front
+        // half hidden: cut off and blocked. Then the brakes — a
+        // jolt, skid marks, dust, a little shake. The CAUGHT card and badge
+        // go on the open road behind them.
+        CAR: {
+            ENABLED: true,         // false: villains stand on the road instead
+            TINT:    null,         // a colour to tint the body with, or null for none
+            SCALE:   1,            // of the piggy car's size
+            DEPTH:   3.9,          // behind the piggy car (CAR.DEPTH 4)
+            // HOW FAR THE PIGGY CAR GETS as the distance runs down (in place
+            // of DRIVE_SHARE): at the last metre its front bumper is this far
+            // along the getaway car — 0 its rear, 0.5 its middle, 1 its front.
+            // Near 1, the two are level by the last metre and the catch is a
+            // gentle crossover, not a burst of speed.
+            CHASE_TARGET: 0.85,
+            // WHERE THEY MEET, as a share of the car area's width (from the
+            // slots to the screen's right edge): the two cars come level with
+            // their middle here. The piggy car comes forward AND the getaway
+            // car drifts back as the gap closes, so the crossover happens
+            // mid-road rather than at its far end. Never further than the
+            // getaway car's start, nor behind the piggy car's.
+            MEET_AT: 0.55,
+            // The head in the window, in the BODY's pixels (254 x 107): its
+            // centre at X, Y and H tall — the top HEAD_FRAC of the villain's
+            // picture, which is the head.
+            FACE: { X: 126, Y: 28, H: 40, HEAD_FRAC: 0.55 },
+            BLOCK: {
+                // THE CROSSOVER, from level (CHASE_TARGET): the piggy car
+                // carries on at chase pace and eases to a stop SURGE px further
+                // on (never past the screen's edge), while the getaway car
+                // brakes back beside it until OVERLAP of it is hidden.
+                SURGE:     22,     // px @ design
+                OVERLAP:   0.55,   // share of the getaway car hidden behind it
+                SLIDE_MS:  700,    // the crossover, start to stop
+                CUT_TILT:  4,      // degrees the piggy car noses up cutting in
+                BRAKE_TILT: 5,     // degrees the getaway car noses down braking
+                BRAKE_MS:  140,
+                SKID_LEN:  46,     // px @ design of skid mark behind each tyre
+                PUFFS:     5,      // dust puffs at the getaway car's tyres
+                DUST:      '#d9c3a0',
+                SETTLE_MS: 260,    // after the brakes, before the CAUGHT card
+                SHAKE:     0.005,
+                SHAKE_MS:  140,
+            },
+        },
     },
 
     // ── THE WANTED CARDS ─────────────────────────────────────────────────────
@@ -769,7 +823,8 @@ var CONFIG = {
 
         // THE CATCH.
         CATCH: {
-            DELAY_MS:   200,     // after the villain starts to go
+            DELAY_MS:   200,     // after the villain starts to go (with a
+                                 // getaway car: after it is blocked)
             POP_MS:     260,
             STAMP_MS:   220,     // the cuffs and stamp slamming down
             HOLD_MS:    700,     // after the stamp, before it shrinks
