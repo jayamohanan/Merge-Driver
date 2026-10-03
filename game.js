@@ -1303,7 +1303,8 @@ class GameScene extends Phaser.Scene {
             if (car) {
                 const vl = this.villains[i];
                 const stopAt = vl ? vl.x - vl.displayWidth / 2 : A.x + A.width;
-                car.endX = Math.max(car.homeX, stopAt - v(V.STOP_GAP, 10) * sc - car.carW / 2);
+                const reach = Math.max(car.homeX, stopAt - v(V.STOP_GAP, 10) * sc - car.carW / 2);
+                car.endX = car.homeX + (reach - car.homeX) * Math.max(0, Math.min(1, v(V.DRIVE_SHARE, 0.5)));
                 // A NEW LEVEL rolls the car back to the start; otherwise it is
                 // put straight where its lane's progress says.
                 if (enter) {

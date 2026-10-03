@@ -689,9 +689,13 @@ var CONFIG = {
 
         // THE CAR'S DRIVE. It starts beside its slot and, as the distance
         // runs down, moves toward the villain in proportion to how much of the
-        // level's distance is covered — at zero its front bumper is STOP_GAP
-        // px (@ design) short of the villain. Each tick's move is spread over
-        // DRIVE_MS so the car rolls rather than jumps.
+        // level's distance is covered. It only goes DRIVE_SHARE of the way —
+        // 0.5 stops it halfway between its start and the villain at zero — so
+        // a car never LOOKS nearly there while the figure still reads 1000 m.
+        // (1 would take its front bumper to STOP_GAP px short of the villain.)
+        // Each tick's move is spread over DRIVE_MS so the car rolls rather than
+        // jumps.
+        DRIVE_SHARE: 0.5,
         STOP_GAP:   10,
         DRIVE_MS:   950,
 
