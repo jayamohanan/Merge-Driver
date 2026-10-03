@@ -1155,11 +1155,16 @@ class GameScene extends Phaser.Scene {
         const left  = A.x + v(C.LEFT_GAP, 0) * this.layoutConfig.platformScale;
         let right = left;
         this.cars = this.platforms.map((p) => {
-            const h = Math.min(A.width * v(C.WIDTH_FRAC, 0.45) / bodyW * carH,
-                               p.slotSize * v(C.MAX_H_FRAC, 1));
+            // FULL SIZE first — what the villains are measured against and
+            // where their space starts — then the car itself at SCALE of it.
+            const full = Math.min(A.width * v(C.WIDTH_FRAC, 0.45) / bodyW * carH,
+                                  p.slotSize * v(C.MAX_H_FRAC, 1));
+            right = Math.max(right, left + full / carH * bodyW);
+            const h = full * v(C.SCALE, 1);
             const w = h / carH * bodyW;
-            right = Math.max(right, left + w);
-            return this._makeCar(left + w / 2, p.slotY + p.slotSize / 2, h);
+            const car = this._makeCar(left + w / 2, p.slotY + p.slotSize / 2, h);
+            car.fullH = full;
+            return car;
         });
         this.villainArea = { x: right, y: A.y, width: Math.max(0, A.x + A.width - right), height: A.height };
     }
@@ -1271,7 +1276,9 @@ class GameScene extends Phaser.Scene {
             const lane   = this.lanes[i];
             const car    = this.cars[i];
             const ground = p.slotY + p.slotSize / 2;
-            const carH   = car ? car.carH : p.slotSize;
+            // The FULL-SIZE car's height, so shrinking the car (CAR.SCALE)
+            // leaves the villain as it was.
+            const carH   = car ? (car.fullH || car.carH) : p.slotSize;
 
             // THE VILLAIN, feet on the road line.
             if (this.textures.exists(key)) {

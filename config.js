@@ -801,6 +801,10 @@ var CONFIG = {
         // CAR_AREA.SLOT_COLUMN_GAP away — so the space to its right is free for
         // the villains (GameScene.villainArea).
         WIDTH_FRAC: 0.45,
+        // …and then scaled by this, whatever capped it above — 0.8 is 20%
+        // smaller. The car shrinks toward its slot; the villains keep the size
+        // and place the full-size car gives them.
+        SCALE:      0.8,
         MAX_H_FRAC: 1,
         LEFT_GAP:   0,
         DEPTH:      4,
