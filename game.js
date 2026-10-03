@@ -230,6 +230,9 @@ class GameScene extends Phaser.Scene {
         this.roadGapOpen       = [1, 1, 1];  // each lane's road break: 1 open, 0 joined
         this.roadGapAt         = [null, null, null];  // where the villain's piece starts
         this._levelTurning     = false;  // between the last catch and the next level
+        this.wantedCards       = [];     // the intro's cards, while they are up
+        this.caughtCards       = [];     // per lane: its CAUGHT card / badge
+        this._briefing         = false;  // the intro's cards are up: no chasing yet
 
         // Layout state for responsive design
         this.isPortrait         = true;  // Detected in create()
@@ -618,6 +621,7 @@ class GameScene extends Phaser.Scene {
         if (this.draggingBattery) return 'a pig is being dragged';
         if (this.isWatchingAd)    return 'an ad is playing';
         if (this._levelTurning)   return 'a level turn';
+        if (this._briefing)       return 'the wanted cards';
         if ((this._coinFlights || 0) > 0) return 'coins in flight';
         const t = this.tweens.getTweens().filter((tw) => !tw.isInfinite).length;
         return t ? `${t} tween(s) running` : null;
@@ -974,6 +978,9 @@ class GameScene extends Phaser.Scene {
         } else {
             this.createStartOverlay();
         }
+        // THE LEVEL'S WANTED CARDS — now, or once the start tutorial is
+        // dismissed (removeStartOverlay). None for a level already under way.
+        if (!this.startOverlay) this._showWanted();
         this._startAutosave();
 
         // Input
@@ -1248,7 +1255,7 @@ class GameScene extends Phaser.Scene {
     // to catch.
     _laneDriving(i) {
         const lane = this.lanes && this.lanes[i];
-        return !!(this.chargingSlots[i] && lane && !lane.caught && !this._levelTurning);
+        return !!(this.chargingSlots[i] && lane && !lane.caught && !this._levelTurning && !this._briefing);
     }
 
     // THE LEVEL'S VILLAINS, one per lane — the level's villain, three times —
@@ -1264,6 +1271,7 @@ class GameScene extends Phaser.Scene {
             if (o && o.scene) { this.tweens.killTweensOf(o); o.destroy(); }
         }
         this.villains = []; this.laneLabels = [];
+        this._clearWantedCards();
         this.gapLines = this.roadGfx = null;
         const V  = CONFIG.VILLAIN || {}, LB = V.LABEL || {};
         const v  = (x, d) => (x !== undefined ? x : d);
@@ -1332,6 +1340,10 @@ class GameScene extends Phaser.Scene {
                 strokeThickness: Math.round(v(LB.STROKE_W, 5) * sc),
             }).setOrigin(0.5).setDepth(v(V.DEPTH, 4) + 0.2);
             this._setLaneLabel(i);
+
+            // A CAUGHT LANE keeps its badge — so a rebuild (a relayout, a
+            // resumed save) shows it as it was.
+            if (lane.caught) this._placeBadge(i);
         });
         this.gapLines = this.add.graphics().setDepth(v(V.DEPTH, 4) + 0.1);
         this._drawGapLines();
@@ -1638,11 +1650,14 @@ class GameScene extends Phaser.Scene {
                 duration: V.CAUGHT_MS !== undefined ? V.CAUGHT_MS : 350, ease: 'Cubic.easeIn',
                 onComplete: () => { if (img.scene) img.setVisible(false); } });
         }
-        this.animateCoinReward(at.x, at.y, lane.payout);
+        // THE BOUNTY: from the CAUGHT card, once it is stamped — or straight
+        // from the villain with no cards.
+        const seq = this._showCaughtCard(i, (x, y) => this.animateCoinReward(x, y, lane.payout));
+        if (seq === null) this.animateCoinReward(at.x, at.y, lane.payout);
 
         if (this.lanes.every((l) => l.caught)) {
             this._levelTurning = true;
-            this.time.delayedCall(V.NEXT_LEVEL_MS !== undefined ? V.NEXT_LEVEL_MS : 900,
+            this.time.delayedCall((seq || 0) + (V.NEXT_LEVEL_MS !== undefined ? V.NEXT_LEVEL_MS : 900),
                 () => this._nextLevel());
         }
     }
@@ -1653,6 +1668,222 @@ class GameScene extends Phaser.Scene {
         this.lanes = this._levelLanes(this.level);
         this._buildVillains(true);
         this._levelTurning = false;
+        this._showWanted();
+    }
+
+    // ================================================================
+    // THE WANTED CARDS — see CONFIG.WANTED
+    // ================================================================
+    // Where lane i's card goes: over its villain, centred on the lane's band,
+    // kept inside the villain area. Its badge (the caught marker) stands on
+    // the road line where the villain stood.
+    _wantedSpot(i) {
+        const W = CONFIG.WANTED || {}, v = (x, d) => (x !== undefined ? x : d);
+        const L = this.layoutConfig, A = this.villainArea, p = this.platforms[i];
+        if (!A || !p) return null;
+        const pad = v(W.EDGE_PAD, 8) * L.platformScale;
+        const asp = v(W.ASPECT, 0.78);
+        let h = L.slotBandH * v(W.H_FRAC, 0.95);
+        let w = h * asp;
+        const room = Math.max(10, A.width - 2 * pad);
+        if (w > room) { w = room; h = w / asp; }
+        const vl = this.villains[i];
+        const cx = vl ? vl.x : A.x + A.width / 2;
+        const x  = Math.max(A.x + pad + w / 2, Math.min(cx, A.x + A.width - pad - w / 2));
+        const ground = p.slotY + p.slotSize / 2;
+        const bs = v((W.CATCH || {}).BADGE_SCALE, 0.5);
+        return { x, y: p.slotY, w, h, badgeY: ground - h * bs / 2, badgeScale: bs };
+    }
+
+    // ONE CARD, built at its spot at full size: the paper, WANTED, the
+    // villain's face and its bounty. `caught` adds the cuffs and the stamp, as
+    // card.stamp, so they can be slammed on separately.
+    _makeWantedCard(i, caught) {
+        const W = CONFIG.WANTED || {}, C = W.CATCH || {};
+        const spot = this._wantedSpot(i), lane = this.lanes && this.lanes[i];
+        if (!spot || !lane) return null;
+        const { w, h } = spot;
+        const font = (px, color, extra) => Object.assign({
+            fontSize: Math.max(8, Math.round(px)) + 'px', fontFamily: CONFIG.FONT_FAMILY,
+            fontStyle: CONFIG.FONT_WEIGHT, color,
+        }, extra || {});
+
+        const card = this.add.container(spot.x, spot.y).setDepth(W.DEPTH !== undefined ? W.DEPTH : 5);
+        const g = this.add.graphics();
+        const r = Math.min(w, h) * 0.06, bw = Math.max(1.5, w * 0.035);
+        g.fillStyle(0x000000, 0.25).fillRoundedRect(-w / 2 + bw, -h / 2 + bw * 1.5, w, h, r);
+        g.fillStyle(hexColor(W.PAPER || '#f4e2b4'), 1).fillRoundedRect(-w / 2, -h / 2, w, h, r);
+        g.lineStyle(bw, hexColor(W.BORDER || '#6b4423'), 1).strokeRoundedRect(-w / 2, -h / 2, w, h, r);
+        g.lineStyle(Math.max(1, bw * 0.4), hexColor(W.BORDER || '#6b4423'), 0.5)
+            .strokeRoundedRect(-w / 2 + bw * 2, -h / 2 + bw * 2, w - bw * 4, h - bw * 4, r * 0.6);
+        card.add(g);
+
+        const title = this.add.text(0, -h * 0.36, W.TITLE || 'WANTED',
+            font(h * 0.13, W.TITLE_COLOR || '#8a1c10')).setOrigin(0.5);
+        if (title.width > w * 0.86) title.setScale(w * 0.86 / title.width);
+        card.add(title);
+
+        // The face, fitted to the middle of the card.
+        const key = villainKey(villainIndexFor(this.level));
+        let face = null;
+        if (this.textures.exists(key)) {
+            face = this.add.image(0, -h * 0.02, key);
+            const f = face.frame;
+            face.setScale(Math.min(w * 0.74 / f.realWidth, h * 0.46 / f.realHeight));
+            if (caught) face.setTint(0xa8a8a8);
+            card.add(face);
+        }
+
+        // The bounty: the coin and the figure, centred together.
+        const fy = h * 0.35, cs = h * 0.12;
+        const amt = this.add.text(0, fy, this._bigNum(lane.payout),
+            font(h * 0.12, W.REWARD_COLOR || '#3b2412')).setOrigin(0, 0.5);
+        const coin = this.textures.exists('coin') ? this.add.image(0, fy, 'coin').setDisplaySize(cs, cs) : null;
+        const gap = cs * 0.25;
+        let tw = amt.width + (coin ? cs + gap : 0);
+        if (tw > w * 0.86) { const k = w * 0.86 / tw; amt.setScale(k); tw *= k; }
+        if (coin) { coin.setX(-tw / 2 + coin.displayWidth / 2); card.add(coin); }
+        amt.setX(-tw / 2 + (coin ? cs + gap : 0));
+        card.add(amt);
+
+        if (caught) {
+            const stamp = this.add.container(0, 0);
+            const cuffs = this.add.graphics();
+            // The cuffs low, on the villain's wrists; the stamp across its face.
+            this._drawCuffs(cuffs, 0, h * 0.15, w * 0.46, C);
+            const st = this.add.text(0, -h * 0.05, C.STAMP_TEXT || 'CAUGHT', font(h * 0.14, C.STAMP_COLOR || '#c62828', {
+                stroke: '#ffffff', strokeThickness: Math.max(2, Math.round(h * 0.02)),
+            })).setOrigin(0.5).setAngle(-14);
+            if (st.width > w * 0.95) st.setScale(w * 0.95 / st.width);
+            stamp.add([cuffs, st]);
+            card.add(stamp);
+            card.stamp = stamp;
+        }
+        card.spot = spot;
+        return card;
+    }
+
+    // HANDCUFFS, drawn: two rings joined by a short chain, `size` px across,
+    // centred on (x, y). A dark outline under a light steel stroke.
+    _drawCuffs(g, x, y, size, C) {
+        const s = size, rr = s * 0.2, lw = s * 0.07;
+        const dark = hexColor(C.CUFF_DARK || '#3a4048'), steel = hexColor(C.CUFF_COLOR || '#b8c0c8');
+        const rings = [[x - s * 0.27, y + s * 0.06], [x + s * 0.27, y + s * 0.06]];
+        const links = [[x - s * 0.1, y - s * 0.1], [x, y - s * 0.14], [x + s * 0.1, y - s * 0.1]];
+        for (const [col, wid] of [[dark, lw * 1.7], [steel, lw]]) {
+            g.lineStyle(wid, col, 1);
+            for (const [cx, cy] of rings) g.strokeCircle(cx, cy, rr);
+            g.lineStyle(wid * 0.6, col, 1);
+            for (const [cx, cy] of links) g.strokeCircle(cx, cy, s * 0.045);
+        }
+        // The lock on each ring, where the chain meets it.
+        for (const [cx, cy] of rings) {
+            const bx = cx + (cx < x ? rr * 0.55 : -rr * 0.55), by = cy - rr * 0.75;
+            g.fillStyle(dark, 1).fillRect(bx - lw * 1.2, by - lw * 1.2, lw * 2.4, lw * 2.4);
+            g.fillStyle(steel, 1).fillRect(bx - lw * 0.7, by - lw * 0.7, lw * 1.4, lw * 1.4);
+        }
+    }
+
+    // Every card gone — the intro's and the caught ones — and the intro over.
+    _clearWantedCards() {
+        for (const c of [...this.wantedCards, ...this.caughtCards]) {
+            if (c && c.scene) { this.tweens.killTweensOf(c); if (c.stamp) this.tweens.killTweensOf(c.stamp); c.destroy(); }
+        }
+        this.wantedCards = []; this.caughtCards = [];
+        this._endWantedTimers();
+        this._briefing = false;
+    }
+
+    _endWantedTimers() {
+        if (this._wantedTimer) { this._wantedTimer.remove(false); this._wantedTimer = null; }
+        if (this._wantedSkip) { this.input.off('pointerdown', this._wantedSkip); this._wantedSkip = null; }
+    }
+
+    // A level that has not been touched yet: nobody caught, nobody closer.
+    _levelFresh() {
+        return !!this.lanes && this.lanes.every((l) => !l.caught && l.left >= l.total);
+    }
+
+    // THE INTRO: each villain's card pops up over it in turn, holds, and
+    // shrinks into it — then the chase starts. A tap anywhere ends it early.
+    _showWanted() {
+        const W = CONFIG.WANTED || {}, I = W.INTRO || {}, v = (x, d) => (x !== undefined ? x : d);
+        if (W.ENABLED === false || !this._levelFresh()) return;
+        this._clearWantedCards();
+        this._briefing = true;
+        const start = v(I.START_DELAY_MS, 150), stag = v(I.STAGGER_MS, 150), pop = v(I.POP_MS, 320);
+        this.lanes.forEach((lane, i) => {
+            const card = this._makeWantedCard(i, false);
+            if (!card) return;
+            card.setScale(0).setAngle(Phaser.Math.Between(-6, 6));
+            this.tweens.add({ targets: card, scale: 1, angle: 0, duration: pop,
+                delay: start + i * stag, ease: 'Back.easeOut' });
+            this.wantedCards.push(card);
+        });
+        if (!this.wantedCards.length) { this._briefing = false; return; }
+        const n = this.wantedCards.length;
+        this._wantedTimer = this.time.delayedCall(start + (n - 1) * stag + pop + v(I.HOLD_MS, 1200),
+            () => this._endWanted());
+        // Not the tap that dismissed the start tutorial — the next one.
+        this._wantedSkip = () => this._endWanted();
+        this.time.delayedCall(0, () => { if (this._briefing && this._wantedSkip) this.input.once('pointerdown', this._wantedSkip); });
+    }
+
+    // The intro's cards shrink into their villains, and the chase is on.
+    _endWanted() {
+        if (!this._briefing) return;
+        this._endWantedTimers();
+        this._briefing = false;
+        const out = (CONFIG.WANTED && CONFIG.WANTED.INTRO && CONFIG.WANTED.INTRO.OUT_MS) || 280;
+        const cards = this.wantedCards;
+        this.wantedCards = [];
+        cards.forEach((card, i) => {
+            if (!card || !card.scene) return;
+            this.tweens.killTweensOf(card);
+            const vl = this.villains[i];
+            const ty = vl ? vl.y - vl.displayHeight / 2 : card.y;
+            this.tweens.add({ targets: card, x: vl ? vl.x : card.x, y: ty, scale: 0.1, alpha: 0,
+                duration: out, ease: 'Cubic.easeIn', onComplete: () => card.destroy() });
+        });
+    }
+
+    // THE CATCH: lane i's card pops up, the cuffs and stamp slam on, `pay`
+    // throws the bounty from the card, and it shrinks to the lane's badge.
+    // Returns how long that takes, ms — or null with the cards switched off.
+    _showCaughtCard(i, pay) {
+        const W = CONFIG.WANTED || {}, C = W.CATCH || {}, v = (x, d) => (x !== undefined ? x : d);
+        if (W.ENABLED === false) return null;
+        const card = this._makeWantedCard(i, true);
+        if (!card) return null;
+        const old = this.caughtCards[i];
+        if (old && old.scene) old.destroy();
+        this.caughtCards[i] = card;
+
+        const d = v(C.DELAY_MS, 200), pop = v(C.POP_MS, 260), stampMs = v(C.STAMP_MS, 220);
+        const hold = v(C.HOLD_MS, 700), shrink = v(C.SHRINK_MS, 300);
+        const spot = card.spot;
+        card.setScale(0);
+        card.stamp.setScale(2.4).setAlpha(0);
+        this.tweens.add({ targets: card, scale: 1, duration: pop, delay: d, ease: 'Back.easeOut' });
+        this.tweens.add({
+            targets: card.stamp, scale: 1, alpha: 1, duration: stampMs, delay: d + pop, ease: 'Cubic.easeIn',
+            onComplete: () => {
+                if (C.SHAKE) this.cameras.main.shake(v(C.SHAKE_MS, 120), C.SHAKE);
+                pay(card.x, card.y);
+            },
+        });
+        this.tweens.add({ targets: card, scale: spot.badgeScale, y: spot.badgeY,
+            duration: shrink, delay: d + pop + stampMs + hold, ease: 'Cubic.easeInOut' });
+        return d + pop + stampMs + hold + shrink;
+    }
+
+    // A caught lane's badge, put straight where it belongs (a rebuild).
+    _placeBadge(i) {
+        if ((CONFIG.WANTED || {}).ENABLED === false) return;
+        const card = this._makeWantedCard(i, true);
+        if (!card) return;
+        card.setScale(card.spot.badgeScale).setY(card.spot.badgeY);
+        this.caughtCards[i] = card;
     }
 
     // A slot's figure: metres per second.
@@ -2040,8 +2271,9 @@ class GameScene extends Phaser.Scene {
     chargeCycle() {
         // HELD WHILE A RELAYOUT WAITS, so everything can come to rest — see
         // _pollOrientation. A second or so of driving, never lost work. Held
-        // too between levels: there is nobody to chase.
-        if (this._relayoutPending || this._levelTurning || !this.lanes) return;
+        // too between levels: there is nobody to chase — and while the wanted
+        // cards are up.
+        if (this._relayoutPending || this._levelTurning || this._briefing || !this.lanes) return;
         for (let i = 0; i < 3; i++) {
             const slot = this.chargingSlots[i];
             if (!slot || !this._laneDriving(i)) continue;
@@ -2485,6 +2717,7 @@ class GameScene extends Phaser.Scene {
         this.hasStartedPlaying = true;
         this.levelUpTimer = this.time.now;
         this.firstLevelUpTimer = true;
+        this._showWanted();
     }
 
     checkAndShowMergeTutorial() {

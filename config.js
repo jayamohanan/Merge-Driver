@@ -730,6 +730,60 @@ var CONFIG = {
         },
     },
 
+    // ── THE WANTED CARDS ─────────────────────────────────────────────────────
+    // The bounty board. When a level begins, each villain's WANTED card — its
+    // face and its bounty — pops up over it, holds a moment, then shrinks into
+    // the villain and the chase starts (a tap anywhere starts it at once).
+    // Merging carries on throughout; only the cars wait. A level resumed part
+    // way through gets no cards.
+    //
+    // When a villain is caught its card comes back with handcuffs and a
+    // CAUGHT stamp slammed over it, the bounty flies from the card to the coin
+    // counter, and the card shrinks to a small badge where the villain stood —
+    // marking the lane done until the level ends.
+    //
+    // The card and the cuffs are drawn in code for now; art can replace them.
+    WANTED: {
+        ENABLED:    true,
+        DEPTH:      5,           // over the villains (4)
+        // Size: H_FRAC of a lane's band high, ASPECT wide per unit of height —
+        // and narrowed (keeping ASPECT) if the villain area is narrower.
+        H_FRAC:     0.95,
+        ASPECT:     0.78,
+        EDGE_PAD:   8,           // px @ design kept clear of the area's edges
+
+        PAPER:      '#f4e2b4',
+        BORDER:     '#6b4423',
+        TITLE:      'WANTED',
+        TITLE_COLOR:'#8a1c10',
+        REWARD_COLOR:'#3b2412',
+
+        // THE INTRO, at a level's start.
+        INTRO: {
+            START_DELAY_MS: 150, // after the level's villains start to appear
+            STAGGER_MS:     150, // between one lane's card and the next
+            POP_MS:         320,
+            HOLD_MS:        1200,// all three up, before they go
+            OUT_MS:         280, // shrinking into the villain
+        },
+
+        // THE CATCH.
+        CATCH: {
+            DELAY_MS:   200,     // after the villain starts to go
+            POP_MS:     260,
+            STAMP_MS:   220,     // the cuffs and stamp slamming down
+            HOLD_MS:    700,     // after the stamp, before it shrinks
+            SHRINK_MS:  300,
+            BADGE_SCALE: 0.5,    // the done marker, as a share of the card
+            SHAKE_MS:   120,
+            SHAKE:      0.004,   // camera shake intensity (0 = none)
+            STAMP_TEXT: 'CAUGHT',
+            STAMP_COLOR:'#c62828',
+            CUFF_COLOR: '#b8c0c8',
+            CUFF_DARK:  '#3a4048',
+        },
+    },
+
     // ── THE PIGGY STEERS ─────────────────────────────────────────────────────
     // A piggy in a slot is drawn as its piggy with its steering wheel as a
     // separate sprite on top, and the wheel turns the way a driver's does:
