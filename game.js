@@ -225,6 +225,10 @@ class GameScene extends Phaser.Scene {
         this.villains          = [];     // one sprite per lane
         this.laneLabels        = [];     // the distance, on each gap line
         this.gapLines          = null;   // one graphics for the three lines
+        this.roadGfx           = null;   // one graphics for the three roads
+        this.roadOffsets       = [0, 0, 0];  // how far each lane's road has slid, px
+        this.roadGapOpen       = [1, 1, 1];  // each lane's road break: 1 open, 0 joined
+        this.roadGapAt         = [null, null, null];  // where the villain's piece starts
         this._levelTurning     = false;  // between the last catch and the next level
 
         // Layout state for responsive design
@@ -657,6 +661,9 @@ class GameScene extends Phaser.Scene {
         this.villains = []; this.laneLabels = [];
         gone(this.gapLines);
         this.gapLines = null;
+        gone(this.roadGfx);
+        this.roadGfx = null;
+        this.roadGapAt = [null, null, null];   // re-measured off the new villains
         gone(this.coinIcon);
         gone(this.coinText);
         gone(this.spawnButton);
@@ -1176,14 +1183,25 @@ class GameScene extends Phaser.Scene {
         const t  = C.TYRE_SIZE !== undefined ? C.TYRE_SIZE : 53;
         const gy = this._carGround();
         const ox = -bw / 2, oy = -gy;   // the body's top-left, from the ground point
-        const body = this.add.image(ox, oy, 'car_body').setOrigin(0, 0)
-            .setDisplaySize(bw, C.BODY_H || 107);
+        // ABOUT ITS CENTRE, so the suspension can tilt it in place.
+        const bh = C.BODY_H || 107;
+        const body = this.add.image(ox + bw / 2, oy + bh / 2, 'car_body').setDisplaySize(bw, bh);
         const tyres = (C.TYRES || []).map((w) =>
             this.add.image(ox + w.x + t / 2, oy + w.y + t / 2, 'car_tyre').setDisplaySize(t, t));
         const car = this.add.container(x, groundY,
             C.TYRES_IN_FRONT === false ? [...tyres, body] : [body, ...tyres]);
         car.setScale(height / gy).setDepth(C.DEPTH !== undefined ? C.DEPTH : 4);
         car.tyres = tyres;
+        car.bodyImg = body;
+        // THE SUSPENSION (see _suspend). Resting y's inside the car, and where
+        // the rear and front tyres sit across it from the body's centre, in
+        // the car's own pixels.
+        car.bodyBaseY = body.y;
+        car.tyreBaseY = tyres.map((ty) => ty.y);
+        car.tyreDX = tyres.map((ty) => ty.x);
+        // Each end of the body: its height above rest and how fast it is
+        // moving (px, up is +). `k` is the last speed share, for the squat.
+        car.susp = { ends: tyres.map(() => ({ e: 0, v: 0 })), k: 0 };
         car.carH = height;     // ground to roof, px
         car.carW = bw * height / gy;
         car.homeX = car.endX = car.targetX = x;   // see _placeCar
@@ -1234,8 +1252,14 @@ class GameScene extends Phaser.Scene {
     // them exactly as they were (caught ones stay gone). `enter` fades the
     // villains in, for a new level.
     _buildVillains(enter) {
-        for (const o of [...this.villains, ...this.laneLabels]) if (o && o.scene) { this.tweens.killTweensOf(o); o.destroy(); }
+        // EVERYTHING THE LAST BUILD MADE goes first — the road and the gap
+        // lines too. Left behind, a new level drew its road over a frozen copy
+        // of the last one's, and the lanes showed two road lines.
+        for (const o of [...this.villains, ...this.laneLabels, this.gapLines, this.roadGfx]) {
+            if (o && o.scene) { this.tweens.killTweensOf(o); o.destroy(); }
+        }
         this.villains = []; this.laneLabels = [];
+        this.gapLines = this.roadGfx = null;
         const V  = CONFIG.VILLAIN || {}, LB = V.LABEL || {};
         const v  = (x, d) => (x !== undefined ? x : d);
         const L  = this.layoutConfig, A = this.villainArea;
@@ -1259,7 +1283,8 @@ class GameScene extends Phaser.Scene {
                 // by EDGE_PAD rather than centred off it (portrait is narrow).
                 const pad = v(V.EDGE_PAD, 12) * sc;
                 const f   = img.frame;
-                const k   = Math.min(h / f.realHeight, Math.max(1, A.width - 2 * pad) / f.realWidth);
+                const k   = Math.min(h / f.realHeight, Math.max(1, A.width - 2 * pad) / f.realWidth)
+                          * v(V.SCALE, 1);
                 const w   = f.realWidth * k;
                 img.setScale(k).setX(Math.max(A.x + pad + w / 2,
                     Math.min(A.x + A.width * v(V.X_FRAC, 0.7), A.x + A.width - pad - w / 2)));
@@ -1302,6 +1327,193 @@ class GameScene extends Phaser.Scene {
         });
         this.gapLines = this.add.graphics().setDepth(v(V.DEPTH, 4) + 0.1);
         this._drawGapLines();
+        const R = CONFIG.ROAD || {};
+        this.roadGfx = this.add.graphics().setDepth(R.DEPTH !== undefined ? R.DEPTH : 3.8);
+        this._drawRoads(0);
+    }
+
+    // ONE LANE'S ROAD, as a pattern over one PERIOD: its marks (where each sits
+    // along it, what it is, its size) and its bumps (where, how high, how
+    // long, as shares). Fixed per lane (hashed, not random), so a rebuild
+    // draws the same road, and the three lanes differ.
+    _roadPattern(lane) {
+        const R = CONFIG.ROAD || {};
+        const n = Math.max(1, R.MARKS || 8);
+        const marks = [];
+        for (let k = 0; k < n; k++) {
+            const h = (s) => this._cellHash(lane, k, s);
+            // Spread evenly, then nudged — irregular, but never bunched.
+            const at = (k + 0.15 + 0.7 * h(1)) / n;
+            marks.push({ at, kind: h(2) < 0.5 ? 'dash' : 'pebble', size: h(3), drop: h(4) });
+        }
+        // ONE BUMP per bump spacing (see _bumpEvery), somewhere along it.
+        const h = (s) => this._cellHash(lane + 7, 0, s);
+        const bumps = [{ at: 0.15 + 0.7 * h(1), h: 0.7 + 0.3 * h(2), w: 0.7 + 0.3 * h(3) }];
+        return { marks, bumps };
+    }
+
+    // HOW FAR APART THE BUMPS ARE this level, px: EVERY on level 1, closing
+    // in to EVERY_MIN by MIN_AT_LEVEL. Fixed for the level, so a bump never
+    // jumps mid-road.
+    _bumpEvery() {
+        const B = (CONFIG.ROAD || {}).BUMPS || {};
+        const v = (x, d) => (x !== undefined ? x : d);
+        const a = v(B.EVERY, 2400), b = v(B.EVERY_MIN, 1000);
+        const t = Math.min(1, Math.max(0, (this.level - 1) / Math.max(1, v(B.MIN_AT_LEVEL, 30) - 1)));
+        return Math.max(20, (a + (b - a) * t) * this.layoutConfig.platformScale);
+    }
+
+    // THE ROADS, redrawn each frame — the line (with its bumps), the marks,
+    // slid back by how far that lane has driven and faded out before its
+    // villain — and each car's suspension stepped over the road under it.
+    _drawRoads(delta) {
+        const g = this.roadGfx;
+        if (!g || !g.scene) return;
+        g.clear();
+        const R  = CONFIG.ROAD || {}, C = CONFIG.CAR || {}, BU = R.BUMPS || {};
+        const v  = (x, d) => (x !== undefined ? x : d);
+        const sc = this.layoutConfig.platformScale;
+        const A  = this.carArea, B = this.layoutConfig.partB;
+        if (!A) return;
+        const x0 = A.x, xEnd = B.x + B.width;
+        const period = Math.max(20, v(R.PERIOD, 420) * sc);
+        const lineW  = Math.max(1, v(R.LINE_W, 3) * sc);
+        const lineC  = hexColor(R.LINE_COLOR || '#a3825c');
+        const markC  = hexColor(R.MARK_COLOR || '#7e6044');
+        const bumpH  = v(BU.H, 6) * sc, bumpW = Math.max(2, v(BU.W, 40) * sc);
+        const step   = Math.max(1, v(R.SAMPLE, 4) * sc);
+        const top    = v(C.SPIN_DEG_PER_SEC, 540) || 1;
+        if (!this._roadSets) this._roadSets = [0, 1, 2].map((i) => this._roadPattern(i));
+
+        this.platforms.forEach((p, i) => {
+            const y   = p.slotY + p.slotSize / 2;
+            const car = this.cars[i], vl = this.villains[i];
+            const set = this._roadSets[i];
+
+            // IN STEP WITH THE TYRES: the share of full spin they are at.
+            const k = car && car.scene ? Math.max(0, (car.wheelSpeed || 0) / top) : 0;
+            // HOW FAR THE ROAD HAS SLID — kept whole, since the marks and the
+            // bumps repeat at different spacings and each takes its own share.
+            this.roadOffsets[i] += v(R.SPEED, 420) * sc * k * delta / 1000;
+            const off = this.roadOffsets[i] % period;
+            const bumpP = this._bumpEvery(), bumpOff = this.roadOffsets[i] % bumpP;
+
+            // WHERE THE ROAD GOES QUIET: from just past the bumper, flat and
+            // bare before the villain.
+            const front = car ? car.x + car.carW / 2 : x0;
+            const vLeft = vl && vl.visible ? vl.x - vl.displayWidth / 2 : xEnd;
+
+            // THE BREAK BEFORE THE VILLAIN: open while it is still to be
+            // reached, eased shut once caught (and open again for the next).
+            // Its place is kept from while the villain was there, since a
+            // caught one is gone.
+            const GP = R.GAP || {};
+            const lane = this.lanes && this.lanes[i];
+            if (vl && vl.visible) this.roadGapAt[i] = vLeft - v(GP.VILLAIN_PAD, 14) * sc;
+            const want = lane && !lane.caught ? 1 : 0;
+            const rate = delta / Math.max(1, v(GP.CLOSE_MS, 250));
+            this.roadGapOpen[i] = want > this.roadGapOpen[i]
+                ? Math.min(want, this.roadGapOpen[i] + rate)
+                : Math.max(want, this.roadGapOpen[i] - rate);
+            const gapEnd   = this.roadGapAt[i] !== null ? this.roadGapAt[i] : xEnd;
+            const gapStart = gapEnd - v(GP.W, 26) * sc * this.roadGapOpen[i];
+
+            const hardEnd = Math.min(vLeft - v(R.CLEAR, 18) * sc, gapStart);
+            const f0 = Math.min(front + v(R.FADE_AHEAD, 20) * sc, hardEnd);
+            const f1 = Math.min(f0 + v(R.FADE_LEN, 140) * sc, hardEnd);
+            const fade = (x) => x <= f0 ? 1 : x >= f1 ? 0 : 1 - (x - f0) / Math.max(1, f1 - f0);
+
+            // THE ROAD'S HEIGHT at a screen x (px, up is +): the bumps, each a
+            // smooth rise, slid back with the marks and flattened by the fade.
+            const heightAt = (x) => {
+                let hgt = 0;
+                for (const b of set.bumps) {
+                    const w = bumpW * b.w;
+                    // The nearest copy of this bump, spacing by spacing.
+                    let c = x0 + b.at * bumpP - bumpOff;
+                    c += Math.round((x - c) / bumpP) * bumpP;
+                    const d = Math.abs(x - c);
+                    if (d < w / 2) hgt += bumpH * b.h * 0.5 * (1 + Math.cos(Math.PI * d / (w / 2)));
+                }
+                return hgt * fade(x);
+            };
+
+            // THE LINE, bumps and all — the car's piece up to the break, the
+            // villain's piece after it (one piece once the break has shut).
+            g.lineStyle(lineW, lineC, 1);
+            const piece = (a, b) => {
+                if (b - a < 0.5) return;
+                g.beginPath();
+                g.moveTo(a, y - heightAt(a));
+                for (let x = a + step; x < b; x += step) g.lineTo(x, y - heightAt(x));
+                g.lineTo(b, y - heightAt(b));
+                g.strokePath();
+            };
+            if (gapEnd - gapStart < 0.5) piece(x0, xEnd);
+            else { piece(x0, gapStart); piece(gapEnd, xEnd); }
+
+            // THE MARKS, every period across the lane, slid back by the offset.
+            for (let base = x0 - period; base < xEnd + period; base += period) {
+                for (const m of set.marks) {
+                    const x = base + m.at * period - off;
+                    if (x < x0 || x > xEnd) continue;
+                    const a = fade(x);
+                    if (a <= 0.01 || (x > gapStart && x < gapEnd)) continue;
+                    const yy = y - heightAt(x);
+                    if (m.kind === 'dash') {
+                        const len = (8 + 14 * m.size) * sc;
+                        g.lineStyle(lineW, markC, a);
+                        g.lineBetween(x, yy, Math.min(x + len, xEnd), y - heightAt(Math.min(x + len, xEnd)));
+                    } else {
+                        g.fillStyle(markC, a);
+                        g.fillCircle(x, yy + (4 + 5 * m.drop) * sc, (1.2 + 1.6 * m.size) * sc);
+                    }
+                }
+            }
+
+            if (car && car.scene) this._suspend(car, heightAt, k, delta);
+        });
+    }
+
+    // THE SUSPENSION, one step. Each tyre sits on the road straight under it;
+    // each end of the body is a damped spring pulled toward its tyre's height,
+    // with a kick back on pulling away and forward on stopping (the squat).
+    // The body then takes the two ends' average height and the tilt between
+    // them. See CONFIG.SUSPENSION.
+    _suspend(car, heightAt, k, delta) {
+        const S  = CONFIG.SUSPENSION || {};
+        const v  = (x, d) => (x !== undefined ? x : d);
+        const sc = this.layoutConfig.platformScale;
+        const s  = car.susp, ends = s.ends;
+        if (!ends.length) return;
+        const scale = car.scaleX || 1;
+        const dt = Math.min(delta, 50) / 1000;
+        const w  = v(S.STIFFNESS, 16), z = v(S.DAMPING, 0.35);
+        const max = v(S.MAX, 9) * sc;
+        const kick = v(S.SQUAT, 60) * sc * (k - s.k);   // + speeding up, − slowing
+        s.k = k;
+
+        car.tyres.forEach((ty, j) => {
+            const hgt = heightAt(car.x + car.tyreDX[j] * scale);
+            ty.y = car.tyreBaseY[j] - hgt / scale;
+            const end = ends[j];
+            // The rear (first) squats as the car pulls away, the front lifts.
+            end.v += (j === 0 ? -kick : kick);
+            // Two half-steps: steadier at a dropped frame.
+            for (let n = 0; n < 2; n++) {
+                const h = dt / 2;
+                end.v += (w * w * (hgt - end.e) - 2 * z * w * end.v) * h;
+                end.e += end.v * h;
+            }
+            if (end.e - hgt > max)  { end.e = hgt + max; end.v = Math.min(0, end.v); }
+            if (hgt - end.e > max)  { end.e = hgt - max; end.v = Math.max(0, end.v); }
+        });
+
+        // The body: halfway between its ends, tilted to the line between them.
+        const r = ends[0], f = ends[ends.length - 1];
+        const base = (car.tyreDX[ends.length - 1] - car.tyreDX[0]) * scale || 1;
+        car.bodyImg.y = car.bodyBaseY - ((r.e + f.e) / 2) / scale;
+        car.bodyImg.rotation = -Math.atan2(f.e - r.e, base);
     }
 
     // WHERE LANE i's CAR SHOULD BE: from its home spot to its end, by the share
@@ -1335,10 +1547,11 @@ class GameScene extends Phaser.Scene {
         }
     }
 
-    // THE MEASURING LINES, redrawn each frame since the cars move: from each
-    // car's front bumper to its villain, an upright bar and an arrowhead at
-    // either end, and the distance in the middle with the line broken around
-    // it. A gap too short for the figure gets it just above the line instead.
+    // THE MEASURING LINES, redrawn each frame since the cars move: above each
+    // lane, from the car's centre to its villain's centre — an upright bar and
+    // an arrowhead at either end, a faint leader down to each, and the
+    // distance in the middle with the line broken around it. A line too short
+    // for the figure gets it just above instead.
     _drawGapLines() {
         const g = this.gapLines;
         if (!g || !g.scene || !this.lanes) return;
@@ -1346,23 +1559,31 @@ class GameScene extends Phaser.Scene {
         const V  = CONFIG.VILLAIN || {}, G = V.GAP_LINE || {};
         const v  = (x, d) => (x !== undefined ? x : d);
         const sc = this.layoutConfig.platformScale;
-        const pad = v(G.PAD, 6) * sc, arrow = v(G.ARROW, 11) * sc;
+        const arrow = v(G.ARROW, 11) * sc, lw = Math.max(1, v(G.W, 3) * sc);
         const tick = v(G.END_TICK, 18) * sc / 2, tpad = v(G.TEXT_PAD, 8) * sc;
         const col = hexColor(G.COLOR || '#ffffff'), alpha = v(G.ALPHA, 0.95);
-        g.lineStyle(Math.max(1, v(G.W, 3) * sc), col, alpha);
 
         this.platforms.forEach((p, i) => {
             const lane = this.lanes[i], car = this.cars[i], vl = this.villains[i];
             const t = this.laneLabels[i];
             if (!lane || lane.caught || !car || !vl || !vl.visible) { if (t) t.setVisible(false); return; }
-            const y  = p.slotY + p.slotSize / 2 - car.carH * v(G.Y_FRAC, 0.45);
-            const x0 = car.x + car.carW / 2 + pad;
-            const x1 = vl.x - vl.displayWidth / 2 - pad;
-            if (x1 - x0 < 2 * arrow) {            // touching: no room for a line
-                if (t) t.setPosition((x0 + x1) / 2, y - car.carH * 0.55).setVisible(true);
-                return;
+            // CENTRE TO CENTRE, above whichever of the two stands taller.
+            const ground = p.slotY + p.slotSize / 2;
+            const carTop = ground - car.carH, vTop = ground - vl.displayHeight;
+            const y  = Math.min(carTop, vTop) - v(G.ABOVE, 14) * sc;
+            const x0 = car.x, x1 = vl.x;
+            if (x1 - x0 < 2 * arrow) { if (t) t.setVisible(false); return; }
+
+            // The leaders, faint, down toward the roof and the head.
+            if (G.LEADERS !== false) {
+                const lg = v(G.LEADER_GAP, 6) * sc;
+                g.lineStyle(lw, col, alpha * v(G.LEADER_ALPHA, 0.45));
+                if (carTop - lg > y + tick) g.lineBetween(x0, y + tick, x0, carTop - lg);
+                if (vTop - lg > y + tick)   g.lineBetween(x1, y + tick, x1, vTop - lg);
             }
+
             // The two end bars and the arrowheads pointing out at them.
+            g.lineStyle(lw, col, alpha);
             g.lineBetween(x0, y - tick, x0, y + tick);
             g.lineBetween(x1, y - tick, x1, y + tick);
             g.fillStyle(col, alpha);
@@ -3174,6 +3395,7 @@ class GameScene extends Phaser.Scene {
         this._steerWheels(delta);
         this._driveCars(delta);
         this._drawGapLines();
+        this._drawRoads(delta);
     }
 }
 

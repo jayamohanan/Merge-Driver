@@ -597,6 +597,67 @@ var CONFIG = {
         },
     },
 
+    // ── THE ROAD ─────────────────────────────────────────────────────────────
+    // The only scenery: one thin line per lane at its ground level — the line
+    // the tyres and the villain stand on — with small marks along it (dashes
+    // on the line, pebbles under it) and a few real BUMPS in it, all sliding
+    // BACKWARDS while the lane's car is driving, so the car reads as moving.
+    // They run in step with the tyres' spin (CAR.SPIN_*), starting, coasting
+    // and stopping with them. The tyres ride over the bumps and the body
+    // follows on its springs (SUSPENSION).
+    //
+    // THE MARKS AND BUMPS FADE OUT BEFORE THE VILLAIN: full under and behind
+    // the car, thinning (bumps flattening) from FADE_AHEAD past its front
+    // bumper over FADE_LEN, and gone at the latest CLEAR px short of the
+    // villain — so the villain stands on still, flat road rather than seeming
+    // to slide along with it.
+    ROAD: {
+        LINE_COLOR:  '#a3825c',
+        LINE_W:      3,          // px @ design
+        MARK_COLOR:  '#7e6044',
+        SPEED:       420,        // px/s @ design the marks slide at, full speed
+        PERIOD:      420,        // px @ design before the pattern of marks repeats
+        MARKS:       8,          // marks in one period
+        FADE_AHEAD:  20,         // px @ design past the bumper before the fade starts
+        FADE_LEN:    140,        // px @ design the fade takes
+        CLEAR:       18,         // px @ design kept clear before the villain
+        DEPTH:       3.8,        // under the cars and villains
+
+        // THE BUMPS: smooth rises in the road, H px high and W px long
+        // (@ design), each a random 70–100% of that. RARE, so each one reads
+        // as an event: one every EVERY px of road (@ design) on level 1 —
+        // about every 5–6 seconds at SPEED — coming closer together level by
+        // level down to EVERY_MIN at level MIN_AT_LEVEL and after.
+        BUMPS: { H: 6, W: 80, EVERY: 2400, EVERY_MIN: 1000, MIN_AT_LEVEL: 30 },
+        // THE BREAK IN THE ROAD before each villain: the car's road and the
+        // villain's own short piece of it, W px apart (@ design), so the
+        // villain reads as being further off than the screen shows. The
+        // villain's piece starts VILLAIN_PAD px before its left edge. The gap
+        // closes — the road joins — when the car reaches the villain, over
+        // CLOSE_MS, and opens again for the next level's.
+        GAP: { W: 26, VILLAIN_PAD: 14, CLOSE_MS: 250 },
+        SAMPLE: 4,               // px @ design between points of the drawn road
+    },
+
+    // ── THE SUSPENSION ───────────────────────────────────────────────────────
+    // Hill Climb Racing style: the tyres follow the road under them, and the
+    // body hangs on two springs, one over each tyre. A tyre going over a bump
+    // squashes its spring, which lifts that end of the body — front first,
+    // then rear, so the car pitches over each bump and settles.
+    //   STIFFNESS  how fast the springs answer (rad/s): higher is stiffer
+    //   DAMPING    how quickly they settle: 1 = no wobble, lower = bouncier
+    //   SQUAT      the body rocking back as the car pulls away and nosing
+    //              down as it stops (px/s @ design kicked into the springs
+    //              per full change of speed)
+    //   MAX        the most a spring may stretch or squash, px @ design — the
+    //              lanes are close, so the body never leaves its own lane
+    SUSPENSION: {
+        STIFFNESS: 16,
+        DAMPING:   0.35,
+        SQUAT:     60,
+        MAX:       9,
+    },
+
     // ── THE VILLAINS ─────────────────────────────────────────────────────────
     // One per lane, three to a level, all the same villain: level 1 wears
     // FILES[0], level 2 FILES[1], level 3 FILES[2], level 4 FILES[0] again, and
@@ -614,6 +675,9 @@ var CONFIG = {
         // at MAX_BAND_FRAC of the lane's band so it never reaches the lane above.
         H_FRAC:        1.25,
         MAX_BAND_FRAC: 0.85,
+        // …and then scaled by this, whatever capped it above — 0.75 is 25%
+        // smaller than the size those give.
+        SCALE:         0.75,
         X_FRAC:        0.7,      // its middle, across the free space right of the cars
         EDGE_PAD:      12,       // px @ design kept clear of the screen's right edge
         DEPTH:         4,
@@ -631,11 +695,19 @@ var CONFIG = {
         STOP_GAP:   10,
         DRIVE_MS:   950,
 
-        // THE MEASURING LINE from the car's front bumper to the villain, with
-        // the distance on it: |<---- 65 m ---->|
+        // THE MEASURING LINE, ABOVE the lane: from the car's centre to the
+        // villain's centre, ABOVE px (@ design) over the taller of the car's
+        // roof and the villain's head, with the distance on it:
+        //        |<-------- 65 m -------->|
+        //        :                        :
+        //      [car]                   villain
+        // A faint LEADER drops from each end toward what it measures from, to
+        // LEADER_GAP px above it.
         GAP_LINE: {
-            Y_FRAC:   0.45,      // height above the road, as a share of the car's height
-            PAD:      6,         // px @ design kept clear of the bumper and the villain
+            ABOVE:      32,      // px @ design over the taller of roof and head
+            LEADERS:    false,   // the faint drop lines — off: the line floats free
+            LEADER_GAP: 6,       // px @ design the leader stops short of them
+            LEADER_ALPHA: 0.45,
             W:        3,         // line width, px @ design
             ARROW:    11,        // arrowhead length, px @ design
             END_TICK: 18,        // the upright bar at each end, px @ design
