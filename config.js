@@ -785,6 +785,19 @@ var CONFIG = {
             // centre at X, Y and H tall — the top HEAD_FRAC of the villain's
             // picture, which is the head.
             FACE: { X: 126, Y: 28, H: 40, HEAD_FRAC: 0.55 },
+            // CAUGHT, OUT OF THE CAR: once the cars have stopped, the villain
+            // pops up standing on the road in front of both, centred on them,
+            // and the cuffs slam on over its hands. It stays till the level
+            // ends. Then the card (WANTED.CATCH).
+            PERP: {
+                ENABLED: true,
+                H_FRAC:  1.05,       // its height, as a share of the piggy car's
+                DEPTH:   4.5,        // over both cars
+                CUFF_W:  0.6,        // the cuffs' width, as a share of the villain's
+                CUFF_AT: 0.4,        // their height up it, as a share (its hands)
+                POP_MS:  260,
+                CUFF_MS: 220,
+            },
             // THE LOOK BACK: the driver stays down out of sight — only the
             // window shows — and pops up from the sill to glance back only at
             // milestones: as it gets in (the wanted card landing) and as the
@@ -809,7 +822,7 @@ var CONFIG = {
             CARS: [
                 getawayCarArt(1, 256,  91, 53, [29, 60], [175, 60], { X: 135, Y: 19, H: 38 }),   // dark sedan
                 getawayCarArt(2, 207, 104, 56, [20, 65], [126, 65], { X: 100, Y: 27, H: 36 }),   // yellow city car
-                getawayCarArt(3, 256,  76, 55, [24, 39], [164, 39], { X: 110, Y: 17, H: 30 }),   // red muscle car
+                getawayCarArt(3, 256,  72, 56, [22, 34], [163, 34], { X: 110, Y: 17, H: 30 }),   // red muscle car
                 getawayCarArt(4, 256, 119, 59, [32, 78], [159, 78], { X: 113, Y: 40, H: 40 }),   // green SUV
                 getawayCarArt(5, 256, 100, 58, [28, 63], [173, 63], { X: 135, Y: 27, H: 36 }),   // teal classic
                 getawayCarArt(6, 256,  77, 56, [19, 39], [157, 39], { X: 112, Y: 17, H: 30 }),   // blue sports car
@@ -884,10 +897,12 @@ var CONFIG = {
     // Merging carries on throughout; only the cars wait. A level resumed part
     // way through gets no cards.
     //
-    // When a villain is caught its card comes back with handcuffs and a
-    // CAUGHT stamp slammed over it, the bounty flies from the card to the coin
-    // counter, and the card shrinks to a badge where the villain was caught —
-    // marking the lane done until the level ends.
+    // When a villain is caught (after the cuffed villain steps out —
+    // VILLAIN.CAR.PERP) its card comes back on the road ahead of the stopped
+    // cars, a red cross slams onto its photo, and the bounty flies from the
+    // card to the coin counter as the bounty line goes. The card stays there,
+    // marking the lane done until the level ends. (Without getaway cars it
+    // shrinks to a BADGE_SCALE badge where the villain stood instead.)
     //
     // The card and the cuffs are drawn in code for now; art can replace them.
     WANTED: {
@@ -919,14 +934,13 @@ var CONFIG = {
             DELAY_MS:   200,     // after the villain starts to go (with a
                                  // getaway car: after it is blocked)
             POP_MS:     260,
-            STAMP_MS:   220,     // the cuffs and stamp slamming down
-            HOLD_MS:    700,     // after the stamp, before it shrinks
-            SHRINK_MS:  300,
-            BADGE_SCALE: 0.8,    // the done marker over the stopped cars, as a share of the card
+            STAMP_MS:   220,     // the cross slamming onto the photo
+            HOLD_MS:    700,     // after the cross, before the next level can turn
+            SHRINK_MS:  300,     // (no getaway cars) shrinking to its badge
+            BADGE_SCALE: 0.8,    // (no getaway cars) the badge, as a share of the card
             SHAKE_MS:   120,
             SHAKE:      0,       // camera shake as the stamp lands (0 = none)
-            STAMP_TEXT: 'CAUGHT',
-            STAMP_COLOR:'#c62828',
+            CROSS_COLOR:'#d32f2f',   // the cross over the photo
             CUFF_COLOR: '#b8c0c8',
             CUFF_DARK:  '#3a4048',
         },

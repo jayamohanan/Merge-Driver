@@ -232,6 +232,7 @@ class GameScene extends Phaser.Scene {
         this._levelTurning     = false;  // between the last catch and the next level
         this.wantedCards       = [];     // the intro's cards, while they are up
         this.caughtCards       = [];     // per lane: its CAUGHT card / badge
+        this.perps             = [];     // per lane: the caught villain, cuffed, in front of the cars
         this._briefing         = false;  // the intro's cards are up: no chasing yet
 
         // Layout state for responsive design
@@ -1772,17 +1773,17 @@ class GameScene extends Phaser.Scene {
     // Where lane i's card goes: over its villain, centred on the lane's band,
     // kept inside the villain area. Its badge (the caught marker) stands on
     // the road line where the villain stood.
-    // A CAUGHT getaway car's card goes OVER the stopped cars instead,
-    // centred on the two, its badge standing on the road there.
+    // A CAUGHT getaway car's card goes on the road AHEAD of the stopped cars
+    // instead, as large as the room there allows, and stays (no badge).
     _wantedSpot(i, caught) {
         const W = CONFIG.WANTED || {}, v = (x, d) => (x !== undefined ? x : d);
         const L = this.layoutConfig, p = this.platforms[i];
         const vl = this.villains[i];
-        let A = this.villainArea, over = null;
+        let A = this.villainArea, ahead = false;
         if (caught && vl && vl.isCar && this.carArea && this.cars[i]) {
-            const car = this.cars[i];
-            A = this.carArea;
-            over = ((this._blockedX(i) - vl.carW / 2) + (this._blockedCarX(i) + car.carW / 2)) / 2;
+            const CA = this.carArea, x0 = this._blockedCarX(i) + this.cars[i].carW / 2;
+            A = { x: x0, width: Math.max(0, CA.x + CA.width - x0) };
+            ahead = true;
         }
         if (!A || !p) return null;
         const pad = v(W.EDGE_PAD, 8) * L.platformScale;
@@ -1792,12 +1793,12 @@ class GameScene extends Phaser.Scene {
         const room = Math.max(10, A.width - 2 * pad);
         if (w > room) { w = room; h = w / asp; }
         // Where the villain stands — a getaway car's home, wherever it is now.
-        const cx = over !== null ? over
+        const cx = ahead ? A.x + A.width / 2
                  : vl ? (vl.homeX !== undefined ? vl.homeX : vl.x) : A.x + A.width / 2;
         const x  = Math.max(A.x + pad + w / 2, Math.min(cx, A.x + A.width - pad - w / 2));
         const ground = p.slotY + p.slotSize / 2;
-        const bs = v((W.CATCH || {}).BADGE_SCALE, 0.5);
-        return { x, y: p.slotY, w, h, badgeY: ground - h * bs / 2, badgeScale: bs };
+        const bs = ahead ? 1 : v((W.CATCH || {}).BADGE_SCALE, 0.5);
+        return { x, y: p.slotY, w, h, badgeY: ahead ? p.slotY : ground - h * bs / 2, badgeScale: bs, ahead };
     }
 
     // ONE CARD, built at its spot at full size: the paper, WANTED, the
@@ -1854,15 +1855,16 @@ class GameScene extends Phaser.Scene {
         card.rewardY = fy;
 
         if (caught) {
-            const stamp = this.add.container(0, 0);
-            const cuffs = this.add.graphics();
-            // The cuffs low, on the villain's wrists; the stamp across its face.
-            this._drawCuffs(cuffs, 0, h * 0.15, w * 0.46, C);
-            const st = this.add.text(0, -h * 0.05, C.STAMP_TEXT || 'CAUGHT', font(h * 0.14, C.STAMP_COLOR || '#c62828', {
-                stroke: '#ffffff', strokeThickness: Math.max(2, Math.round(h * 0.02)),
-            })).setOrigin(0.5).setAngle(-14);
-            if (st.width > w * 0.95) st.setScale(w * 0.95 / st.width);
-            stamp.add([cuffs, st]);
+            // A RED CROSS over the photo — this one is done.
+            const stamp = this.add.container(0, -h * 0.02);
+            const x = this.add.graphics();
+            const cw = w * 0.34, chh = h * 0.21, lw = Math.max(3, w * 0.07);
+            for (const [col, wid] of [[0xffffff, lw * 1.5], [hexColor(C.CROSS_COLOR || '#d32f2f'), lw]]) {
+                x.lineStyle(wid, col, 1);
+                x.lineBetween(-cw, -chh, cw, chh);
+                x.lineBetween(-cw, chh, cw, -chh);
+            }
+            stamp.add(x);
             card.add(stamp);
             card.stamp = stamp;
         }
@@ -1896,7 +1898,8 @@ class GameScene extends Phaser.Scene {
         for (const c of [...this.wantedCards, ...this.caughtCards]) {
             if (c && c.scene) { this.tweens.killTweensOf(c); if (c.stamp) this.tweens.killTweensOf(c.stamp); c.destroy(); }
         }
-        this.wantedCards = []; this.caughtCards = [];
+        for (const o of this.perps) if (o && o.scene) { this.tweens.killTweensOf(o); o.destroy(); }
+        this.wantedCards = []; this.caughtCards = []; this.perps = [];
         this._endWantedTimers();
         this._briefing = false;
         for (const en of this.villains) if (en && en.isCar && en.face) en.face.setVisible(true);
@@ -1966,21 +1969,26 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    // THE CATCH: lane i's card pops up, the cuffs and stamp slam on, `pay`
-    // throws the bounty from the card, and it shrinks to the lane's badge.
-    // Returns how long that takes, ms — or null with the cards switched off.
+    // THE CATCH: in a chase, the villain steps out in front of the stopped
+    // cars and the cuffs go on (_showPerp); then lane i's card pops up ahead
+    // of the cars, the cross slams onto the photo and `pay` throws the bounty
+    // from the card as its bounty line goes. The card stays as the lane's
+    // done marker. Without getaway cars the card shrinks to a badge where the
+    // villain stood. Returns how long it all takes, ms — or null with the
+    // cards switched off.
     _showCaughtCard(i, pay, after = 0) {
         const W = CONFIG.WANTED || {}, C = W.CATCH || {}, v = (x, d) => (x !== undefined ? x : d);
         if (W.ENABLED === false) return null;
+        const perpMs = this._showPerp(i, after);
         const card = this._makeWantedCard(i, true);
         if (!card) return null;
         const old = this.caughtCards[i];
         if (old && old.scene) old.destroy();
         this.caughtCards[i] = card;
 
-        const d = after + v(C.DELAY_MS, 200), pop = v(C.POP_MS, 260), stampMs = v(C.STAMP_MS, 220);
-        const hold = v(C.HOLD_MS, 700), shrink = v(C.SHRINK_MS, 300);
-        const spot = card.spot;
+        const d = after + perpMs + v(C.DELAY_MS, 200), pop = v(C.POP_MS, 260), stampMs = v(C.STAMP_MS, 220);
+        const hold = v(C.HOLD_MS, 700), spot = card.spot;
+        const shrink = spot.ahead ? 0 : v(C.SHRINK_MS, 300);
         card.setScale(0);
         card.stamp.setScale(2.4).setAlpha(0);
         this.tweens.add({ targets: card, scale: 1, duration: pop, delay: d, ease: 'Back.easeOut' });
@@ -1997,19 +2005,62 @@ class GameScene extends Phaser.Scene {
                 }
             },
         });
-        this.tweens.add({ targets: card, scale: spot.badgeScale, y: spot.badgeY,
-            duration: shrink, delay: d + pop + stampMs + hold, ease: 'Cubic.easeInOut' });
-        return d + pop + stampMs + hold + shrink;
+        if (shrink) {
+            this.tweens.add({ targets: card, scale: spot.badgeScale, y: spot.badgeY,
+                duration: shrink, delay: d + pop + stampMs + hold, ease: 'Cubic.easeInOut' });
+        }
+        return d - after + pop + stampMs + hold + shrink;
     }
 
-    // A caught lane's badge, put straight where it belongs (a rebuild).
+    // A caught lane as it ends up, put straight there (a rebuild): the
+    // cuffed villain in front of the cars, the card with its cross and no
+    // bounty left on it.
     _placeBadge(i) {
         if ((CONFIG.WANTED || {}).ENABLED === false) return;
+        this._showPerp(i, -1);
         const card = this._makeWantedCard(i, true);
         if (!card) return;
         card.setScale(card.spot.badgeScale).setY(card.spot.badgeY);
         for (const o of card.reward || []) o.setVisible(false);   // already paid
         this.caughtCards[i] = card;
+    }
+
+    // THE VILLAIN, OUT OF THE CAR: lane i's villain standing on the road in
+    // front of both stopped cars, centred on them, with the cuffs on — popped
+    // out `after` ms from now and cuffed after it, or put straight there
+    // (`after` < 0, a rebuild). Its head leaves the window. Returns how long
+    // until it is cuffed, ms (0 without a getaway car).
+    _showPerp(i, after) {
+        const V = CONFIG.VILLAIN || {}, PP = (V.CAR || {}).PERP || {}, C = (CONFIG.WANTED || {}).CATCH || {};
+        const v = (x, d) => (x !== undefined ? x : d);
+        const en = this.villains[i], car = this.cars[i], p = this.platforms[i];
+        const key = villainKey(villainIndexFor(this.level));
+        if (PP.ENABLED === false || !en || !en.isCar || !car || !p || !this.textures.exists(key)) return 0;
+        const old = this.perps[i];
+        if (old && old.scene) old.destroy();
+
+        const ground = p.slotY + p.slotSize / 2;
+        const x = ((this._blockedX(i) - en.carW / 2) + (this._blockedCarX(i) + car.carW / 2)) / 2;
+        const perp = this.add.container(x, ground).setDepth(v(PP.DEPTH, 4.5));
+        const img = this.add.image(0, 0, key).setOrigin(0.5, 1);
+        const f = img.frame;
+        const h = Math.min(car.carH * v(PP.H_FRAC, 1.05), this.layoutConfig.slotBandH * v(V.MAX_BAND_FRAC, 0.85));
+        img.setScale(h / f.realHeight);
+        // THE CUFFS, over its middle — its hands.
+        const cuffs = this.add.graphics({ x: 0, y: -h * v(PP.CUFF_AT, 0.4) });
+        this._drawCuffs(cuffs, 0, 0, img.displayWidth * v(PP.CUFF_W, 0.6), C);
+        perp.add([img, cuffs]);
+        this.perps[i] = perp;
+
+        const hide = () => { if (en.face) en.face.setVisible(false); };
+        if (after < 0) { hide(); return 0; }
+        const pop = v(PP.POP_MS, 260), cuffMs = v(PP.CUFF_MS, 220);
+        perp.setScale(0);
+        cuffs.setScale(2.4).setAlpha(0);
+        this.time.delayedCall(after, hide);
+        this.tweens.add({ targets: perp, scale: 1, duration: pop, delay: after, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: cuffs, scale: 1, alpha: 1, duration: cuffMs, delay: after + pop, ease: 'Cubic.easeIn' });
+        return pop + cuffMs;
     }
 
     // ================================================================
