@@ -830,7 +830,7 @@ var CONFIG = {
                 PUFFS:     5,      // dust puffs at the getaway car's tyres
                 DUST:      '#d9c3a0',
                 SETTLE_MS: 260,    // after the brakes, before the CAUGHT card
-                SHAKE:     0.0025,   // camera shake as the getaway car is blocked (0 = none)
+                SHAKE:     0,        // camera shake as the getaway car is blocked (0 = none)
                 SHAKE_MS:  140,
             },
         },

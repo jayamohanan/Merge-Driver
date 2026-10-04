@@ -2177,7 +2177,7 @@ class GameScene extends Phaser.Scene {
 
     // CAUGHT IN A CHASE: the piggy car sprints, closes the gap and overtakes
     // — and only once its bumper reaches the getaway car does that one give
-    // way, braking back behind it: a jolt, skid marks, dust, a shake.
+    // way, braking back behind it: a jolt, skid marks, dust.
     // Returns how long it takes, ms.
     _blockGetaway(i) {
         const B = ((CONFIG.VILLAIN || {}).CAR || {}).BLOCK || {};
