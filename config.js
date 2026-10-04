@@ -6,6 +6,20 @@ function hexColor(cssColor) {
     return cssColor;
 }
 
+// ONE GETAWAY CAR DESIGN (CONFIG.VILLAIN.CAR.CARS): graphics/villain_car/
+// villain_car_NN.webp and villain_tyre_NN.webp, the body w x h, the tyre's
+// square size, each tyre's top-left [x, y] in the body, and the head (FACE).
+function getawayCarArt(n, w, h, tyre, rear, front, face) {
+    const nn = String(n).padStart(2, '0');
+    return {
+        BODY: `graphics/villain_car/villain_car_${nn}.webp`,
+        TYRE: `graphics/villain_car/villain_tyre_${nn}.webp`,
+        BODY_W: w, BODY_H: h, TYRE_SIZE: tyre,
+        TYRES: [{ x: rear[0], y: rear[1] }, { x: front[0], y: front[1] }],
+        FACE: Object.assign({ HEAD_FRAC: 0.55 }, face),
+    };
+}
+
 var CONFIG = {
     // Quotes are LOAD-BEARING. Phaser passes this straight into a canvas font
     // string, and a family with a space and a digit in it fails to parse
@@ -581,10 +595,12 @@ var CONFIG = {
                                        // ground inside it, so it reads as empty
                                        // rather than as another colour. Filled,
                                        // the slot takes its grained face as ever
-        CHARGE_RATE_GAP: 2,            // gap (px) between a slot's bottom edge
-                                       // and the charge-rate figure under it.
-                                       // The font's own top padding adds to
-                                       // this on screen
+        CHARGE_RATE_ABOVE: true,       // the charge-rate figure OVER its slot,
+                                       // level with the distance lines over
+                                       // the cars; false puts it under
+        CHARGE_RATE_GAP: 2,            // gap (px) between the slot's edge and
+                                       // the charge-rate figure. The font's
+                                       // own padding adds to this on screen
 
         // The rate on each slot. Was black type on a white outline — the one
         // place in the game that ran that way round — which put it at odds with
@@ -708,6 +724,10 @@ var CONFIG = {
         // A faint LEADER drops from each end toward what it measures from, to
         // LEADER_GAP px above it.
         GAP_LINE: {
+            // Off: no line — the figure rides over the villain instead (see
+            // LABEL.ABOVE), and there is no unit, so it reads as what is
+            // left to catch it rather than a measurement of the gap on screen.
+            ENABLED:    false,
             ABOVE:      32,      // px @ design over the taller of roof and head
             LEADERS:    false,   // the faint drop lines — off: the line floats free
             LEADER_GAP: 6,       // px @ design the leader stops short of them
@@ -726,7 +746,9 @@ var CONFIG = {
             COLOR:    '#ffffff',
             STROKE:   '#2b2013',
             STROKE_W: 5,
-            SUFFIX:   ' m',
+            SUFFIX:   '',        // no unit: a count to zero, not a distance
+            ABOVE:    10,        // px @ design over the taller car (no line)
+            ZERO_MS:  600,       // the 0 stays up this long after the catch
         },
 
         // THE GETAWAY CAR. Each villain flees in a car — the piggy car's own
@@ -740,7 +762,7 @@ var CONFIG = {
         // eases ahead and the getaway car brakes back behind it, its front
         // half hidden: cut off and blocked. Then the brakes — a
         // jolt, skid marks, dust, a little shake. The CAUGHT card and badge
-        // go on the open road behind them.
+        // go over the two stopped cars, centred on them.
         CAR: {
             ENABLED: true,         // false: villains stand on the road instead
             TINT:    null,         // a colour to tint the body with, or null for none
@@ -759,10 +781,40 @@ var CONFIG = {
             // mid-road rather than at its far end. Never further than the
             // getaway car's start, nor behind the piggy car's.
             MEET_AT: 0.55,
-            // The head in the window, in the BODY's pixels (254 x 107): its
+            // The head in the window, in the BODY's pixels (254 x 97): its
             // centre at X, Y and H tall — the top HEAD_FRAC of the villain's
             // picture, which is the head.
             FACE: { X: 126, Y: 28, H: 40, HEAD_FRAC: 0.55 },
+            // THE LOOK BACK: the driver stays down out of sight — only the
+            // window shows — and pops up from the sill to glance back only at
+            // milestones: as it gets in (the wanted card landing) and as the
+            // piggy car passes each share of the distance in AT, staying up
+            // SHOW seconds (a random time in the range). Caught, it stays up.
+            // ENABLED false keeps it up the whole time.
+            PEEK: {
+                ENABLED: true,
+                AT:      [0.2, 0.4, 0.6, 0.8, 0.95],   // shares of the distance covered
+                SHOW:    [1, 1.6],   // s up per look
+                UP_MS:   160,        // popping up (0: just there)
+                DOWN_MS: 0,          // ducking back down (0: just gone, no animation)
+            },
+            // THE GETAWAY CAR DESIGNS — a NEW ONE EVERY LEVEL, in this order,
+            // starting over once all have been used: a right-facing body and
+            // its tyre, laid out like CONFIG.CAR — BODY_W x BODY_H art px,
+            // TYRE_SIZE square tyres with their TOP-LEFT corners at TYRES
+            // (rear, front) — and the driver's head (FACE, as above) in this
+            // body's own driver's window: its cut edge on the window's sill,
+            // the ears over the roof. With none here (or the art missing) the
+            // piggy car's body stands in, with FACE above.
+            CARS: [
+                getawayCarArt(1, 256,  91, 53, [29, 60], [175, 60], { X: 135, Y: 19, H: 38 }),   // dark sedan
+                getawayCarArt(2, 207, 104, 56, [20, 65], [126, 65], { X: 100, Y: 27, H: 36 }),   // yellow city car
+                getawayCarArt(3, 256,  76, 55, [24, 39], [164, 39], { X: 110, Y: 17, H: 30 }),   // red muscle car
+                getawayCarArt(4, 256, 119, 59, [32, 78], [159, 78], { X: 113, Y: 40, H: 40 }),   // green SUV
+                getawayCarArt(5, 256, 100, 58, [28, 63], [173, 63], { X: 135, Y: 27, H: 36 }),   // teal classic
+                getawayCarArt(6, 256,  77, 56, [19, 39], [157, 39], { X: 112, Y: 17, H: 30 }),   // blue sports car
+                getawayCarArt(7, 256, 101, 54, [30, 67], [176, 67], { X: 143, Y: 30, H: 36 }),   // orange wagon
+            ],
             BLOCK: {
                 // THE CROSSOVER, from level (CHASE_TARGET): the piggy car
                 // carries on at chase pace and eases to a stop SURGE px further
@@ -778,9 +830,50 @@ var CONFIG = {
                 PUFFS:     5,      // dust puffs at the getaway car's tyres
                 DUST:      '#d9c3a0',
                 SETTLE_MS: 260,    // after the brakes, before the CAUGHT card
-                SHAKE:     0.005,
+                SHAKE:     0.0025,   // camera shake as the getaway car is blocked (0 = none)
                 SHAKE_MS:  140,
             },
+        },
+    },
+
+    // ── THE CHASE'S FEEDBACK ─────────────────────────────────────────────────
+    // What makes each second of driving read like a hit.
+    CHASE_FX: {
+        // THE DISTANCE POP: each tick, the metres just closed float up off
+        // the lane's gap line ("−200 m") and fade — the chase's damage numbers.
+        DIST_POP: {
+            ENABLED:  true,
+            SIZE:     24,        // px @ design
+            COLOR:    '#ffe27a',
+            STROKE:   '#2b2013',
+            STROKE_W: 4,         // px @ design
+            RISE:     34,        // px @ design it floats up
+            MS:       800,
+            JITTER:   10,        // px @ design of sideways scatter, so ticks don't stack
+        },
+        // SPEED LINES AND EXHAUST behind the piggy car while it drives, as
+        // strong as the chase is quick: by how many seconds the lane's piggy
+        // would take to cover the whole level distance — SLOW_SECS or more is
+        // the faintest (MIN), FAST_SECS or less the fullest. So merging a
+        // better piggy visibly makes the chase more intense, level after
+        // level. They fade in and out with the tyres.
+        SPEED: {
+            ENABLED:   true,
+            SLOW_SECS: 40,
+            FAST_SECS: 4,
+            MIN:       0.35,     // intensity of the slowest chase, 0..1
+            DEPTH:     3.85,     // over the road, under both cars
+            LINES:      6,       // streaks per lane
+            LINE_COLOR: '#ffffff',
+            LINE_ALPHA: 0.6,
+            LINE_W:     3,       // px @ design
+            LINE_LEN:   [22, 70],// px @ design, shortest to longest
+            LINE_SPAN:  150,     // px @ design they travel back from the bumper
+            LINE_SPEED: 2.4,     // trips per second
+            // Exhaust puffs from the tailpipe — in the piggy car body's own
+            // pixels (CONFIG.CAR.BODY_W x BODY_H) — RATE puffs a second.
+            EXHAUST: { X: 6, Y: 78, RATE: [1.5, 9], R: [3, 6], LIFE: 0.6,
+                       COLOR: '#ffffff', ALPHA: 0.55, MAX: 60 },
         },
     },
 
@@ -793,7 +886,7 @@ var CONFIG = {
     //
     // When a villain is caught its card comes back with handcuffs and a
     // CAUGHT stamp slammed over it, the bounty flies from the card to the coin
-    // counter, and the card shrinks to a small badge where the villain stood —
+    // counter, and the card shrinks to a badge where the villain was caught —
     // marking the lane done until the level ends.
     //
     // The card and the cuffs are drawn in code for now; art can replace them.
@@ -829,9 +922,9 @@ var CONFIG = {
             STAMP_MS:   220,     // the cuffs and stamp slamming down
             HOLD_MS:    700,     // after the stamp, before it shrinks
             SHRINK_MS:  300,
-            BADGE_SCALE: 0.5,    // the done marker, as a share of the card
+            BADGE_SCALE: 0.8,    // the done marker over the stopped cars, as a share of the card
             SHAKE_MS:   120,
-            SHAKE:      0.004,   // camera shake intensity (0 = none)
+            SHAKE:      0,       // camera shake as the stamp lands (0 = none)
             STAMP_TEXT: 'CAUGHT',
             STAMP_COLOR:'#c62828',
             CUFF_COLOR: '#b8c0c8',
@@ -883,11 +976,11 @@ var CONFIG = {
         // grid cell.
         BAND_FRAC: 0.9,
         SLOT_FRAC: 0.62,
-        RATE_SUFFIX: ' m/s',     // after each slot's figure
+        RATE_SUFFIX: '/s',       // after each slot's figure
     },
 
     // ── THE CAR ──────────────────────────────────────────────────────────────
-    // One car per slot, built from graphics/car: the right-facing body and two
+    // One car per slot, built from graphics/hero_car: the right-facing body and two
     // copies of the tyre. Positions are in the BODY's own pixels — its top-left
     // at 0,0 — and give each tyre's TOP-LEFT corner. The whole car is then
     // scaled as one, and placed by the point under its middle where the tyres
@@ -895,11 +988,11 @@ var CONFIG = {
     // given.
     CAR: {
         BODY_W: 254,             // the body art's size, px
-        BODY_H: 107,
+        BODY_H: 97,
         TYRE_SIZE: 53,           // the tyre art's size, px (square)
         TYRES: [
-            { x: 32,  y: 76 },   // rear
-            { x: 175, y: 74 },   // front
+            { x: 26,  y: 66 },   // rear
+            { x: 175, y: 66 },   // front
         ],
         TYRES_IN_FRONT: true,    // tyres drawn over the body's dark arches
 

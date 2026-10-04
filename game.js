@@ -1119,7 +1119,11 @@ class GameScene extends Phaser.Scene {
         this._makeCellTextures(L.cellSize);
 
         for (let i = 0; i < 3; i++) {
-            const slotY = top + bandH * (i + 0.5) - labelH / 2;
+            // The label ABOVE the square (CHARGE_RATE_ABOVE, in line with the
+            // gap lines over the cars) or under it; the square shifts the
+            // other way so the two stay centred in the band as one block.
+            const above = P.CHARGE_RATE_ABOVE !== false;
+            const slotY = top + bandH * (i + 0.5) + (above ? labelH / 2 : -labelH / 2);
 
             // The empty square, stroke and all, stays up the whole time; filling
             // the slot lays the grid's grained face over its INSIDE only, sized
@@ -1132,9 +1136,10 @@ class GameScene extends Phaser.Scene {
             const slotBgFilled = this.add.image(slotX, slotY, 'cell_face')
                 .setDisplaySize(face, face).setDepth(3).setVisible(false);
 
-            // The distance this slot's pig covers per second, under the square.
-            const chargeRateText = this.add.text(slotX, slotY + ssz / 2 + s(P.CHARGE_RATE_GAP), '', style)
-                .setOrigin(0.5, 0).setDepth(5).setVisible(false);
+            // The distance this slot's pig covers per second, over (or under) the square.
+            const rateY = above ? slotY - ssz / 2 - s(P.CHARGE_RATE_GAP) : slotY + ssz / 2 + s(P.CHARGE_RATE_GAP);
+            const chargeRateText = this.add.text(slotX, rateY, '', style)
+                .setOrigin(0.5, above ? 1 : 0).setDepth(5).setVisible(false);
 
             const slot = { index: i, slotX, slotY, slotSize: ssz, slotBg, slotBgFilled, chargeRateText };
             if (this.platforms[i]) Object.assign(this.platforms[i], slot);
@@ -1178,8 +1183,10 @@ class GameScene extends Phaser.Scene {
 
     // Where the tyres meet the ground, in the body's own pixels: the lowest
     // tyre bottom. The car's height, ground to roof, is the same figure.
-    _carGround() {
-        const C = CONFIG.CAR || {};
+    // `spec` is the car's art and layout — CONFIG.CAR (the piggy car) unless
+    // given, or a getaway car's from VILLAIN.CAR.CARS.
+    _carGround(spec) {
+        const C = spec || CONFIG.CAR || {};
         const t = C.TYRE_SIZE !== undefined ? C.TYRE_SIZE : 53;
         return Math.max(C.BODY_H || 107, ...(C.TYRES || []).map((w) => w.y + t));
     }
@@ -1188,21 +1195,23 @@ class GameScene extends Phaser.Scene {
     // own pixels and scaled as one. The container's origin is the point under
     // the car's middle where the tyres touch the ground — so (x, groundY) puts
     // the car standing on that line, `height` tall from ground to roof.
-    // Returns the container; its `tyres` are there to spin.
-    _makeCar(x, groundY, height) {
-        const C  = CONFIG.CAR || {};
+    // Returns the container; its `tyres` are there to spin. `spec` (see
+    // _carGround) picks other art: its bodyKey / tyreKey textures and its
+    // BODY_W / BODY_H / TYRE_SIZE / TYRES layout.
+    _makeCar(x, groundY, height, spec) {
+        const C  = spec || CONFIG.CAR || {};
         const bw = C.BODY_W !== undefined ? C.BODY_W : 254;
         const t  = C.TYRE_SIZE !== undefined ? C.TYRE_SIZE : 53;
-        const gy = this._carGround();
+        const gy = this._carGround(C);
         const ox = -bw / 2, oy = -gy;   // the body's top-left, from the ground point
         // ABOUT ITS CENTRE, so the suspension can tilt it in place.
         const bh = C.BODY_H || 107;
-        const body = this.add.image(ox + bw / 2, oy + bh / 2, 'car_body').setDisplaySize(bw, bh);
+        const body = this.add.image(ox + bw / 2, oy + bh / 2, C.bodyKey || 'car_body').setDisplaySize(bw, bh);
         const tyres = (C.TYRES || []).map((w) =>
-            this.add.image(ox + w.x + t / 2, oy + w.y + t / 2, 'car_tyre').setDisplaySize(t, t));
+            this.add.image(ox + w.x + t / 2, oy + w.y + t / 2, C.tyreKey || 'car_tyre').setDisplaySize(t, t));
         const car = this.add.container(x, groundY,
             C.TYRES_IN_FRONT === false ? [...tyres, body] : [body, ...tyres]);
-        car.setScale(height / gy).setDepth(C.DEPTH !== undefined ? C.DEPTH : 4);
+        car.setScale(height / gy).setDepth(CONFIG.CAR.DEPTH !== undefined ? CONFIG.CAR.DEPTH : 4);
         car.tyres = tyres;
         car.bodyImg = body;
         // THE SUSPENSION (see _suspend). Resting y's inside the car, and where
@@ -1649,9 +1658,20 @@ class GameScene extends Phaser.Scene {
         this.platforms.forEach((p, i) => {
             const lane = this.lanes[i], car = this.cars[i], vl = this.villains[i];
             const t = this.laneLabels[i];
+            // NO LINE (GAP_LINE.ENABLED false): the figure rides BETWEEN the
+            // two cars, over the taller of them (and the villain's head, if
+            // it pokes above the roof), and never hides for want of room —
+            // and stays up a moment at 0 once caught (LABEL.ZERO_MS).
+            if (G.ENABLED === false && lane && car && vl && vl.visible && (!lane.caught || this._showingZero(lane))) {
+                const ground = p.slotY + p.slotSize / 2;
+                let top = Math.min(ground - car.carH, ground - vl.displayHeight);
+                if (vl.face && vl.face.visible) top = Math.min(top, this._faceAt(vl).y - (vl.faceH || 0) * vl.scaleY / 2);
+                if (t) t.setPosition((car.x + vl.x) / 2, top - v((V.LABEL || {}).ABOVE, 14) * sc - t.height / 2).setVisible(true);
+                return;
+            }
             if (!lane || lane.caught || !car || !vl || !vl.visible) { if (t) t.setVisible(false); return; }
-            // CENTRE TO CENTRE, above whichever of the two stands taller.
             const ground = p.slotY + p.slotSize / 2;
+            // CENTRE TO CENTRE, above whichever of the two stands taller.
             const carTop = ground - car.carH, vTop = ground - vl.displayHeight;
             const y  = Math.min(carTop, vTop) - v(G.ABOVE, 14) * sc;
             const x0 = car.x, x1 = vl.x;
@@ -1685,12 +1705,17 @@ class GameScene extends Phaser.Scene {
         });
     }
 
+    // A caught lane's figure still showing its 0.
+    _showingZero(lane) {
+        return !!(lane && lane.caught && lane.zeroUntil && this.time.now < lane.zeroUntil);
+    }
+
     _setLaneLabel(i) {
         const t = this.laneLabels[i], lane = this.lanes && this.lanes[i];
         if (!t || !t.scene || !lane) return;
         const LB = (CONFIG.VILLAIN || {}).LABEL || {};
         t.setText(this._bigNum(Math.ceil(lane.left)) + (LB.SUFFIX !== undefined ? LB.SUFFIX : ' m'))
-            .setVisible(!lane.caught);
+            .setVisible(!lane.caught || this._showingZero(lane));
     }
 
     // CAUGHT. The villain goes (a fade for now — the kill animation comes
@@ -1702,6 +1727,9 @@ class GameScene extends Phaser.Scene {
         if (lane.caught) return;
         lane.caught = true;
         lane.left = 0;
+        // THE 0 IS SHOWN before the figure goes (LABEL.ZERO_MS).
+        const zm = ((V.LABEL || {}).ZERO_MS);
+        lane.zeroUntil = this.time.now + (zm !== undefined ? zm : 600);
         this._setLaneLabel(i);
 
         const img = this.villains[i];
@@ -1744,20 +1772,17 @@ class GameScene extends Phaser.Scene {
     // Where lane i's card goes: over its villain, centred on the lane's band,
     // kept inside the villain area. Its badge (the caught marker) stands on
     // the road line where the villain stood.
-    // A CAUGHT getaway car's card goes on the open road either side of the
-    // stopped cars instead — whichever side has more of it.
+    // A CAUGHT getaway car's card goes OVER the stopped cars instead,
+    // centred on the two, its badge standing on the road there.
     _wantedSpot(i, caught) {
         const W = CONFIG.WANTED || {}, v = (x, d) => (x !== undefined ? x : d);
         const L = this.layoutConfig, p = this.platforms[i];
         const vl = this.villains[i];
-        let A = this.villainArea;
+        let A = this.villainArea, over = null;
         if (caught && vl && vl.isCar && this.carArea && this.cars[i]) {
-            const CA = this.carArea, car = this.cars[i];
-            const behind = this._blockedX(i) - vl.carW / 2 - CA.x;
-            const aheadX = this._blockedCarX(i) + car.carW / 2;
-            const ahead  = CA.x + CA.width - aheadX;
-            A = behind >= ahead ? { x: CA.x, width: Math.max(0, behind) }
-                                : { x: aheadX, width: Math.max(0, ahead) };
+            const car = this.cars[i];
+            A = this.carArea;
+            over = ((this._blockedX(i) - vl.carW / 2) + (this._blockedCarX(i) + car.carW / 2)) / 2;
         }
         if (!A || !p) return null;
         const pad = v(W.EDGE_PAD, 8) * L.platformScale;
@@ -1767,7 +1792,7 @@ class GameScene extends Phaser.Scene {
         const room = Math.max(10, A.width - 2 * pad);
         if (w > room) { w = room; h = w / asp; }
         // Where the villain stands — a getaway car's home, wherever it is now.
-        const cx = A !== this.villainArea ? A.x + A.width / 2
+        const cx = over !== null ? over
                  : vl ? (vl.homeX !== undefined ? vl.homeX : vl.x) : A.x + A.width / 2;
         const x  = Math.max(A.x + pad + w / 2, Math.min(cx, A.x + A.width - pad - w / 2));
         const ground = p.slotY + p.slotSize / 2;
@@ -1995,32 +2020,57 @@ class GameScene extends Phaser.Scene {
         return !!(K && K.ENABLED !== false && this.textures.exists('car_body'));
     }
 
+    // THIS LEVEL'S GETAWAY CAR DESIGN from VILLAIN.CAR.CARS — a new one each
+    // level, looping once all are used — with the texture keys it loaded under; null if there are
+    // none (or its art is missing), and the piggy car's art stands in.
+    _getawaySpec() {
+        const cars = ((CONFIG.VILLAIN || {}).CAR || {}).CARS || [];
+        if (!cars.length) return null;
+        const n = (Math.max(1, Math.floor(this.level)) - 1) % cars.length + 1;
+        const spec = Object.assign({}, cars[n - 1], { bodyKey: getawayBodyKey(n), tyreKey: getawayTyreKey(n) });
+        return this.textures.exists(spec.bodyKey) && this.textures.exists(spec.tyreKey) ? spec : null;
+    }
+
     // LANE i's GETAWAY CAR: the piggy car's body, tinted, the villain's head
     // in the driver's window — standing on the road at `ground` where the
     // villain would, behind the piggy car. Sized like a container image of
     // the car (setSize), so displayWidth / displayHeight read as they do for
     // a villain picture, and the code that measures villains measures it.
     _makeGetawayCar(i, ground, key) {
-        const V = CONFIG.VILLAIN || {}, K = V.CAR || {}, F = K.FACE || {}, C = CONFIG.CAR || {};
+        const V = CONFIG.VILLAIN || {}, K = V.CAR || {};
         const v = (x, d) => (x !== undefined ? x : d);
         const A = this.villainArea, car = this.cars[i], p = this.platforms[i];
         const sc = this.layoutConfig.platformScale;
-        const h = (car ? car.carH : p.slotSize) * v(K.SCALE, 1);
-        const en = this._makeCar(0, ground, h).setDepth(v(K.DEPTH, 3.9));
-        const bw = v(C.BODY_W, 254), gy = this._carGround();
+        // THE LEVEL'S CAR DESIGN (CARS, a new one each level), or the
+        // piggy car's own art if none is loaded.
+        const spec = this._getawaySpec();
+        const C  = spec || CONFIG.CAR || {}, F = (spec && spec.FACE) || K.FACE || {};
+        const bw = v(C.BODY_W, 254), gy = this._carGround(C);
+        // AT THE PIGGY CAR'S PIXEL SCALE — the two arts drawn alike, so a
+        // lower, longer car comes out lower and longer, not stretched to match.
+        const k  = (car ? car.scaleX : p.slotSize / gy) * v(K.SCALE, 1);
+        const en = this._makeCar(0, ground, gy * k, C).setDepth(v(K.DEPTH, 3.9));
         en.setSize(bw, gy);
         en.isCar = true;
         if (K.TINT) en.bodyImg.setTint(hexColor(K.TINT));
 
         // THE DRIVER: the top of the villain's picture — its head — in the window.
         if (this.textures.exists(key)) {
-            const face = this.add.image(-bw / 2 + v(F.X, 126), -gy + v(F.Y, 28), key);
+            // Anchored at its CUT EDGE, on the window's sill — so it pops up
+            // from the sill when it peeks (_peekFaces), and sinks back to it.
+            const sill = -gy + v(F.Y, 28) + v(F.H, 40) / 2;
+            const face = this.add.image(-bw / 2 + v(F.X, 126), sill, key);
             const fw = face.frame.realWidth, fh = face.frame.realHeight;
             const ch = fh * v(F.HEAD_FRAC, 0.55);
-            face.setCrop(0, 0, fw, ch).setOrigin(0.5, ch / 2 / fh).setScale(v(F.H, 40) / ch);
+            face.setCrop(0, 0, fw, ch).setOrigin(0.5, ch / fh).setScale(v(F.H, 40) / ch);
+            face.baseScale = face.scaleX;
             en.addAt(face, 1);
             en.face = face;
+            en.faceH = v(F.H, 40);
             en.faceBaseY = face.y;
+            // THE PEEK (_peekFaces): 1 fully up, 0 out of sight; ducked, its
+            // next look at the first milestone the lane has not yet passed.
+            en.peek = { v: 0, want: 0, t: 0, up: false, mi: this._nextMilestone(i) };
         }
 
         // WHERE THE VILLAIN WOULD STAND; past the area's right edge rather
@@ -2032,16 +2082,68 @@ class GameScene extends Phaser.Scene {
         return en;
     }
 
+    // Lane i's share of its distance covered, 0..1.
+    _laneDone(i) {
+        const lane = this.lanes && this.lanes[i];
+        return lane && lane.total > 0 ? 1 - lane.left / lane.total : 0;
+    }
+
+    // The index of the first look-back milestone (PEEK.AT) lane i has not
+    // reached yet.
+    _nextMilestone(i) {
+        const M = (((CONFIG.VILLAIN || {}).CAR || {}).PEEK || {}).AT || [];
+        const done = this._laneDone(i);
+        let mi = 0;
+        while (mi < M.length && M[mi] <= done) mi++;
+        return mi;
+    }
+
+    // THE VILLAINS LOOK BACK: each getaway car's driver stays down out of
+    // sight — just the window — and pops up from the sill to glance back
+    // only as the piggy car reaches a milestone (PEEK.AT: a share of the
+    // distance covered), then ducks again. Several passed in one go are one
+    // look. Caught, it stays up. See VILLAIN.CAR.PEEK.
+    _peekFaces(delta) {
+        const P = ((CONFIG.VILLAIN || {}).CAR || {}).PEEK || {}, v = (x, d) => (x !== undefined ? x : d);
+        const dt = Math.min(delta, 50) / 1000, S = P.SHOW || [0.8, 1.6];
+        this.villains.forEach((en, i) => {
+            if (!en || !en.isCar || !en.face || !en.peek || !en.scene) return;
+            const pk = en.peek, lane = this.lanes && this.lanes[i];
+            const M = P.AT || [];
+            if (P.ENABLED === false || (lane && lane.caught)) pk.want = 1;
+            else if (pk.up) {
+                if ((pk.t -= dt) <= 0) { pk.up = false; pk.want = 0; }
+            } else if (pk.mi < M.length && this._laneDone(i) >= M[pk.mi]) {
+                pk.up = true; pk.want = 1;
+                pk.t = Phaser.Math.FloatBetween(S[0], S[1]);
+                pk.mi = this._nextMilestone(i);
+            }
+            // 0 ms is instant: the head simply appears / is gone.
+            const ms = pk.want > pk.v ? v(P.UP_MS, 160) : v(P.DOWN_MS, 0);
+            const step = ms > 0 ? dt * 1000 / ms : 1;
+            pk.v = pk.want > pk.v ? Math.min(pk.want, pk.v + step) : Math.max(pk.want, pk.v - step);
+            // Up with a little overshoot, down straight.
+            // (Back-out by hand: Phaser.Math.Easing is not in the custom build.)
+            const b = 1.70158, u = pk.v - 1;
+            const e = pk.want ? 1 + u * u * ((b + 1) * u + b) : pk.v;
+            en.face.setScale(en.face.baseScale, en.face.baseScale * Math.max(0, e));
+        });
+    }
+
     // Where a getaway car's driver's head is, on screen.
     _faceAt(en) {
         const f = en.face;
-        return f ? { x: en.x + f.x * en.scaleX, y: en.y + f.y * en.scaleY }
+        // Its middle when fully up — it stands on the sill (see _makeGetawayCar).
+        return f ? { x: en.x + f.x * en.scaleX, y: en.y + (f.y - (en.faceH || 0) / 2) * en.scaleY }
                  : { x: en.x, y: en.y - en.displayHeight / 2 };
     }
 
     // The villain has jumped in: the car hops on its springs and kicks up dust.
     _getawayStart(en) {
         const sc = this.layoutConfig.platformScale;
+        // Seen getting in — up — before its first duck.
+        const S = (((CONFIG.VILLAIN || {}).CAR || {}).PEEK || {}).SHOW || [0.8, 1.6];
+        if (en.peek) Object.assign(en.peek, { v: 1, want: 1, up: true, t: Phaser.Math.FloatBetween(S[0], S[1]) });
         this.tweens.add({ targets: en, y: en.y - 5 * sc, duration: 110, yoyo: true, ease: 'Sine.easeOut' });
         this._dust(en, 0, 3);
     }
@@ -2543,11 +2645,124 @@ class GameScene extends Phaser.Scene {
             if (!slot || !this._laneDriving(i)) continue;
             // THE PIGGY'S M/S OFF ITS LANE'S DISTANCE — its damage, in effect.
             const lane = this.lanes[i];
-            this.distance += Math.min(slot.distPerSec, lane.left);
+            const got  = Math.min(slot.distPerSec, lane.left);
+            this.distance += got;
             lane.left = Math.max(0, lane.left - slot.distPerSec);
+            this._distPop(i, got);
             this._setLaneLabel(i);
             this._placeCar(i, true);
             if (lane.left <= 0) this._catchVillain(i);
+        }
+    }
+
+    // THE DISTANCE POP: the metres lane i just closed, floating up off its
+    // gap line (or over its car, when the line is too short to show).
+    _distPop(i, amt) {
+        const D = (CONFIG.CHASE_FX || {}).DIST_POP || {};
+        if (D.ENABLED === false || !(amt > 0)) return;
+        const v = (x, d) => (x !== undefined ? x : d);
+        const sc = this.layoutConfig.platformScale;
+        const t = this.laneLabels[i], car = this.cars[i], p = this.platforms[i];
+        if (!car || !p) return;
+        const ground = p.slotY + p.slotSize / 2;
+        const x = t && t.visible ? t.x : car.x;
+        const y = t && t.visible ? t.y - t.height / 2 : ground - car.carH;
+        const LB = ((CONFIG.VILLAIN || {}).LABEL) || {};
+        const f = this._floatText('distPop', {
+            fontSize: Math.max(10, Math.round(v(D.SIZE, 24) * sc)) + 'px',
+            fontFamily: CONFIG.FONT_FAMILY, fontStyle: CONFIG.FONT_WEIGHT,
+            color: D.COLOR || '#ffe27a', stroke: D.STROKE || '#2b2013',
+            strokeThickness: Math.round(v(D.STROKE_W, 4) * sc),
+        });
+        const j = v(D.JITTER, 10) * sc;
+        f.setText('−' + this._bigNum(Math.round(amt)) + (LB.SUFFIX !== undefined ? LB.SUFFIX : ' m'))
+            .setOrigin(0.5, 1).setDepth(4.3).setPosition(x + Phaser.Math.FloatBetween(-j, j), y);
+        this.tweens.add({ targets: f, y: y - v(D.RISE, 34) * sc, alpha: 0,
+            duration: v(D.MS, 800), ease: 'Cubic.easeOut', onComplete: () => this._floatTextDone(f) });
+    }
+
+    // HOW HARD LANE i IS BEING CHASED, 0..1: by how many seconds its piggy
+    // would take over the whole level distance (CHASE_FX.SPEED), times how
+    // fast its tyres are turning — so it fades in and out with them.
+    _chaseIntensity(i) {
+        const S = (CONFIG.CHASE_FX || {}).SPEED || {}, v = (x, d) => (x !== undefined ? x : d);
+        const C = CONFIG.CAR || {};
+        const car = this.cars[i], slot = this.chargingSlots[i], lane = this.lanes && this.lanes[i];
+        if (!car || !car.scene || !slot || !lane || !(slot.distPerSec > 0)) return { k: 0, p: 0 };
+        const k = Math.min(1, (car.wheelSpeed || 0) / (v(C.SPIN_DEG_PER_SEC, 540) || 1));
+        const secs = lane.total / slot.distPerSec;
+        const slow = v(S.SLOW_SECS, 40), fast = v(S.FAST_SECS, 4);
+        const p = Math.max(0, Math.min(1, (slow - secs) / Math.max(0.001, slow - fast)));
+        const min = v(S.MIN, 0.35);
+        return { k: k * (min + (1 - min) * p), p };
+    }
+
+    // SPEED LINES AND EXHAUST behind each driving piggy car, every frame, as
+    // strong as its chase is quick (_chaseIntensity). One graphics for all
+    // three lanes; the puffs are plain records drawn into it, not objects.
+    _drawSpeedFx(delta) {
+        const S = (CONFIG.CHASE_FX || {}).SPEED || {};
+        if (S.ENABLED === false || !this.platforms) return;
+        const v = (x, d) => (x !== undefined ? x : d);
+        if (!this.speedFx || !this.speedFx.scene) {
+            this.speedFx = this.add.graphics().setDepth(v(S.DEPTH, 3.85));
+            this._puffs = []; this._puffAcc = [0, 0, 0]; this._fxT = 0;
+        }
+        const g = this.speedFx, sc = this.layoutConfig.platformScale, dt = Math.min(delta, 50) / 1000;
+        const C = CONFIG.CAR || {}, EX = S.EXHAUST || {}, LL = S.LINE_LEN || [22, 70];
+        const bw = v(C.BODY_W, 254), gy = this._carGround();
+        const lineC = hexColor(S.LINE_COLOR || '#ffffff'), lineA = v(S.LINE_ALPHA, 0.6);
+        const left = this.carArea ? this.carArea.x : 0;
+        this._fxT += dt;
+        g.clear();
+
+        this.platforms.forEach((p, i) => {
+            const car = this.cars[i];
+            if (!car || !car.scene) return;
+            const { k, p: pw } = this._chaseIntensity(i);
+            if (k <= 0.01) { this._puffAcc[i] = 0; return; }
+            const ground = p.slotY + p.slotSize / 2;
+            const rear = car.x - car.carW / 2;
+
+            // THE STREAKS: each its own pace and height (hashed, so steady),
+            // sliding back from the bumper and fading in and out on the way.
+            const n = v(S.LINES, 6);
+            for (let m = 0; m < n; m++) {
+                const h1 = this._cellHash(i, m, 11), h2 = this._cellHash(i, m, 12), h3 = this._cellHash(i, m, 13);
+                const ph = (this._fxT * v(S.LINE_SPEED, 2.4) * (0.7 + 0.6 * h1) + h2) % 1;
+                const len = (LL[0] + (LL[1] - LL[0]) * h1) * sc * (0.5 + 0.5 * pw);
+                const x0 = rear - 6 * sc - ph * v(S.LINE_SPAN, 150) * sc;
+                const x1 = Math.max(left, x0 - len);
+                if (x0 <= x1) continue;
+                const y = ground - car.carH * (0.18 + 0.62 * h3);
+                g.lineStyle(Math.max(1, v(S.LINE_W, 3) * sc), lineC, lineA * k * Math.sin(Math.PI * ph));
+                g.lineBetween(x1, y, x0, y);
+            }
+
+            // THE EXHAUST: puffs at a rate that rises with the chase.
+            const rate = v((EX.RATE || [])[0], 1.5) + (v((EX.RATE || [])[1], 9) - v((EX.RATE || [])[0], 1.5)) * pw;
+            this._puffAcc[i] += rate * k * dt;
+            while (this._puffAcc[i] >= 1 && this._puffs.length < v(EX.MAX, 60)) {
+                this._puffAcc[i] -= 1;
+                const s = car.scaleX;
+                const R = EX.R || [3, 6];
+                this._puffs.push({
+                    x: car.x + (-bw / 2 + v(EX.X, 6)) * s, y: car.y + (-gy + v(EX.Y, 86)) * s,
+                    vx: -Phaser.Math.FloatBetween(30, 70) * sc, vy: -Phaser.Math.FloatBetween(4, 16) * sc,
+                    r: Phaser.Math.FloatBetween(R[0], R[1]) * sc, age: 0,
+                });
+            }
+            if (this._puffAcc[i] > 1) this._puffAcc[i] = 1;
+        });
+
+        // The puffs drift back, swell and fade.
+        const life = v(EX.LIFE, 0.6), pc = hexColor(EX.COLOR || '#ffffff'), pa = v(EX.ALPHA, 0.55);
+        this._puffs = this._puffs.filter((q) => (q.age += dt) < life);
+        for (const q of this._puffs) {
+            q.x += q.vx * dt; q.y += q.vy * dt;
+            const a = q.age / life;
+            g.fillStyle(pc, pa * (1 - a));
+            g.fillCircle(q.x, q.y, q.r * (1 + 1.5 * a));
         }
     }
 
@@ -3901,6 +4116,8 @@ class GameScene extends Phaser.Scene {
         this._driveCars(delta);
         this._drawGapLines();
         this._drawRoads(delta);
+        this._drawSpeedFx(delta);
+        this._peekFaces(delta);
     }
 }
 

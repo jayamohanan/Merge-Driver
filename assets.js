@@ -58,8 +58,13 @@ function sharedAssets() {
     A.image('cell_noise', 'graphics/ui/merge-grid/cell_noise.webp');
     // The car: a right-facing body and the one tyre, used twice per car
     // (see CONFIG.CAR / _makeCar).
-    A.image('car_body', 'graphics/car/body.png');
-    A.image('car_tyre', 'graphics/car/tyre.png');
+    A.image('car_body', 'graphics/hero_car/hero_car_01.webp');
+    A.image('car_tyre', 'graphics/hero_car/hero_tyre_01.webp');
+    // The getaway cars — each design's body and tyre (CONFIG.VILLAIN.CAR.CARS).
+    ((((CONFIG.VILLAIN || {}).CAR) || {}).CARS || []).forEach((c, i) => {
+        A.image(getawayBodyKey(i + 1), c.BODY);
+        A.image(getawayTyreKey(i + 1), c.TYRE);
+    });
     // The villains — all three, they are small and one turns up every level.
     const V = CONFIG.VILLAIN || {};
     (V.FILES || []).forEach((f, i) => A.image(villainKey(i + 1), (V.DIR || 'graphics/villain/') + f));
@@ -77,3 +82,5 @@ function villainIndexFor(level) {
     return ((Math.max(1, Math.floor(level)) - 1) % n) + 1;
 }
 function villainKey(i) { return `villain_${i}`; }
+function getawayBodyKey(i) { return `getaway_body_${i}`; }
+function getawayTyreKey(i) { return `getaway_tyre_${i}`; }
